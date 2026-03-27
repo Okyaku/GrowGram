@@ -4,11 +4,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { CustomButton, InputField, ScreenContainer } from '../src/components/common';
+import { useRoadmap } from '../src/store/roadmap-context';
 import { theme } from '../src/theme';
 
 export default function StoryCreateScreen() {
   const router = useRouter();
+  const { recordDailyActivity } = useRoadmap();
   const [imageUri, setImageUri] = React.useState<string | null>(null);
+  const [caption, setCaption] = React.useState('');
 
   const onPickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -28,6 +31,21 @@ export default function StoryCreateScreen() {
     }
   };
 
+  const onSubmit = () => {
+    if (!imageUri) {
+      Alert.alert('画像を選択してください', 'ストーリー投稿には画像が必要です。');
+      return;
+    }
+
+    recordDailyActivity('story');
+    Alert.alert('投稿完了', 'ストーリーを投稿しました。', [
+      {
+        text: 'OK',
+        onPress: () => router.back(),
+      },
+    ]);
+  };
+
   return (
     <ScreenContainer>
       <View style={styles.headerRow}>
@@ -42,8 +60,15 @@ export default function StoryCreateScreen() {
         {imageUri ? <Image source={{ uri: imageUri }} style={styles.uploaded} /> : <Text style={styles.uploadText}>写真を選択</Text>}
       </Pressable>
 
-      <InputField label='ひとこと' placeholder='今の気持ちや学びを共有...' multiline style={styles.multiline} />
-      <CustomButton label='ストーリーを投稿' onPress={() => Alert.alert('投稿完了', 'ストーリーを投稿しました。')} />
+      <InputField
+        label='ひとこと'
+        placeholder='今の気持ちや学びを共有...'
+        value={caption}
+        onChangeText={setCaption}
+        multiline
+        style={styles.multiline}
+      />
+      <CustomButton label='ストーリーを投稿' onPress={onSubmit} />
     </ScreenContainer>
   );
 }
@@ -59,7 +84,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -75,17 +102,17 @@ const styles = StyleSheet.create({
   upload: {
     height: 240,
     borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.white,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
     overflow: 'hidden',
   },
   uploadText: {
-    color: theme.colors.textSub,
-    fontWeight: '700',
+    color: theme.colors.primary,
+    fontWeight: '800',
   },
   uploaded: {
     width: '100%',

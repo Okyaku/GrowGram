@@ -32,6 +32,9 @@ type AppNotification = {
   time: string;
 };
 
+type ActivityLevel = 0 | 1 | 2 | 3;
+type ActivitySource = 'action' | 'story' | 'milestone-post' | 'post' | 'milestone';
+
 type RoadmapContextType = {
   roadmaps: RoadmapItem[];
   activeRoadmapId: string;
@@ -44,12 +47,18 @@ type RoadmapContextType = {
   activeUnlockedMilestones: MilestoneBase[];
   postedMilestoneIds: string[];
   notifications: AppNotification[];
+  activityByDate: Record<string, ActivityLevel>;
+  streakDays: number;
+  totalScore: number;
+  level: number;
   postCredits: number;
   canCreatePost: boolean;
   setActiveRoadmap: (roadmapId: string) => void;
   moveRoadmap: (roadmapId: string, direction: 'up' | 'down') => void;
   addRoadmap: (params: { goal: string; mode: BuildMode; level?: RoadmapLevel }) => void;
   updateMilestone: (params: { roadmapId: string; milestoneId: string; title: string; subtitle: string }) => void;
+  recordDailyActivity: (source: ActivitySource) => void;
+  logout: () => void;
   clearCurrentMilestone: () => void;
   consumePostCredit: (milestoneId: string) => boolean;
 };
@@ -61,6 +70,25 @@ const levelToCount: Record<RoadmapLevel, number> = {
 };
 
 const nowText = () => '今';
+
+const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
+
+const dayDiff = (from: string, to: string) => {
+  const fromDate = new Date(`${from}T00:00:00`);
+  const toDate = new Date(`${to}T00:00:00`);
+  const diffMs = toDate.getTime() - fromDate.getTime();
+  return Math.floor(diffMs / 86400000);
+};
+
+const sourceToLevel = (source: ActivitySource): ActivityLevel => {
+  if (source === 'milestone-post' || source === 'post') {
+    return 3;
+  }
+  if (source === 'story') {
+    return 2;
+  }
+  return 1;
+};
 
 const estimateAICount = (goal: string) => {
   const lengthWeight = Math.max(0, Math.floor(goal.trim().length / 14));
@@ -112,6 +140,13 @@ const RoadmapContext = createContext<RoadmapContextType | null>(null);
 export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [roadmaps, setRoadmaps] = useState<RoadmapItem[]>([initialRoadmap]);
   const [activeRoadmapId, setActiveRoadmapId] = useState<string>(initialRoadmap.id);
+  const [streakDays, setStreakDays] = useState<number>(1);
+  const [lastActivityDate, setLastActivityDate] = useState<string>(toDateKey(new Date()));
+  const [totalScore, setTotalScore] = useState<number>(12450);
+  const [activityByDate, setActivityByDate] = useState<Record<string, ActivityLevel>>(() => {
+    const today = toDateKey(new Date());
+    return { [today]: 1 };
+  });
   const [notifications, setNotifications] = useState<AppNotification[]>([
     {
       id: 'n-init',
@@ -176,6 +211,46 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const postCredits = unlockedMilestones.length;
   const canCreatePost = postCredits > 0;
+  const level = Math.max(1, Math.floor(totalScore / 1000));
+
+  const recordDailyActivity: RoadmapContextType['recordDailyActivity'] = (source) => {
+    const today = toDateKey(new Date());
+    const levelFromSource = sourceToLevel(source);
+
+    setStreakDays((prev) => {
+      if (today === lastActivityDate) {
+        return prev;
+      }
+
+      if (!lastActivityDate) {
+        return 1;
+      }
+
+      const diff = dayDiff(lastActivityDate, today);
+      if (diff === 1) {
+        return prev + 1;
+      }
+
+      return 1;
+    });
+
+    setLastActivityDate(today);
+
+    setActivityByDate((prev) => {
+      const current = prev[today] ?? 0;
+      const nextLevel = Math.max(current, levelFromSource) as ActivityLevel;
+      if (nextLevel === current) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [today]: nextLevel,
+      };
+    });
+
+    const gained = levelFromSource === 3 ? 90 : levelFromSource === 2 ? 60 : 30;
+    setTotalScore((prev) => prev + gained);
+  };
 
   const moveRoadmap: RoadmapContextType['moveRoadmap'] = (roadmapId, direction) => {
     setRoadmaps((prev) => {
@@ -290,6 +365,8 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
       },
       ...prev,
     ]);
+
+    recordDailyActivity('action');
   };
 
   const consumePostCredit = (milestoneId: string) => {
@@ -329,7 +406,27 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
       ...prev,
     ]);
 
+    recordDailyActivity('milestone-post');
+
     return true;
+  };
+
+  const logout = () => {
+    setRoadmaps([initialRoadmap]);
+    setActiveRoadmapId(initialRoadmap.id);
+    setStreakDays(1);
+    setLastActivityDate(toDateKey(new Date()));
+    setTotalScore(12450);
+    setActivityByDate({
+      [toDateKey(new Date())]: 1,
+    });
+    setNotifications([
+      {
+        id: 'n-init',
+        message: `最初のマイルストーン「${initialRoadmap.milestoneTemplates[0].title}」が投稿可能です。`,
+        time: '今',
+      },
+    ]);
   };
 
   return (
@@ -346,12 +443,18 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeUnlockedMilestones,
         postedMilestoneIds,
         notifications,
+        activityByDate,
+        streakDays,
+        totalScore,
+        level,
         postCredits,
         canCreatePost,
         setActiveRoadmap: setActiveRoadmapId,
         moveRoadmap,
         addRoadmap,
         updateMilestone,
+        recordDailyActivity,
+        logout,
         clearCurrentMilestone,
         consumePostCredit,
       }}

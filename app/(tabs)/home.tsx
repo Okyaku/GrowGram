@@ -35,6 +35,7 @@ const posts = [
     title: 'DAY 45 / 100 CODE',
     image: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000',
     log: 'Cracked custom UI rendering logic. Payoff in progress.',
+    tags: ['#codechallenge', '#design', '#growth'],
     passion: 124,
     logic: 82,
     routine: 210,
@@ -46,6 +47,7 @@ const posts = [
     title: 'DEEP WORK - SESSION 05',
     image: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=1000',
     log: 'Mapping architecture. System logic finalized.',
+    tags: ['#architecture', '#deepwork', '#planning'],
     passion: 45,
     logic: 312,
     routine: 12,
@@ -54,7 +56,7 @@ const posts = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { canCreatePost, postCredits } = useRoadmap();
+  const { canCreatePost, postCredits, streakDays, level, totalScore } = useRoadmap();
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
@@ -69,15 +71,15 @@ export default function HomeScreen() {
       <View style={styles.statsRow}>
         <View>
           <Text style={styles.statLabel}>継続日数</Text>
-          <Text style={styles.statValue}>45日</Text>
+          <Text style={styles.statValue}>{streakDays}日</Text>
         </View>
         <View>
           <Text style={styles.statLabel}>現在のレベル</Text>
-          <Text style={styles.statValueDark}>Lv.12</Text>
+          <Text style={styles.statValueDark}>Lv.{level}</Text>
         </View>
         <View>
           <Text style={styles.statLabel}>獲得スコア</Text>
-          <Text style={styles.statValue}>12,450 pts</Text>
+          <Text style={styles.statValue}>{totalScore.toLocaleString()} pts</Text>
         </View>
       </View>
 
@@ -125,26 +127,34 @@ export default function HomeScreen() {
       </View>
 
       {posts.map((post) => (
-        <Pressable key={post.id} style={styles.card} onPress={() => router.push(`/story/${post.id}`)}>
+        <View key={post.id} style={styles.card}>
           <View style={styles.cardHeader}>
             <Pressable onPress={() => router.push(`/profile/${post.userId}`)}>
               <Text style={styles.user}>{post.userName}</Text>
             </Pressable>
-            <Ionicons name='settings' size={16} color={theme.colors.textSub} />
           </View>
 
           <Text style={styles.day}>{post.title}</Text>
           <Image source={{ uri: post.image }} style={styles.image} />
 
           <View style={styles.metrics}>
-            <Text style={styles.metric}>🔥 {post.passion}</Text>
-            <Text style={styles.metric}>💎 {post.logic}</Text>
-            <Text style={styles.metric}>✅ {post.routine}</Text>
+            <View style={styles.metricItem}><Ionicons name='flame' size={14} color={theme.colors.primary} /><Text style={styles.metric}>{post.passion}</Text></View>
+            <View style={styles.metricItem}><Ionicons name='diamond' size={14} color={theme.colors.primary} /><Text style={styles.metric}>{post.logic}</Text></View>
+            <View style={styles.metricItem}><Ionicons name='checkmark-circle' size={14} color={theme.colors.success} /><Text style={styles.metric}>{post.routine}</Text></View>
           </View>
 
           <Text style={styles.logLabel}>LOG:</Text>
           <Text style={styles.log}>{post.log}</Text>
-        </Pressable>
+          <View style={styles.tagRow}>
+            <Ionicons name='pricetags' size={14} color={theme.colors.primary} />
+            <Text style={styles.tags}>{post.tags.join(' ')}</Text>
+          </View>
+
+          <View style={styles.postActions}>
+            <Pressable style={styles.postActionItem}><Ionicons name='archive-outline' size={16} color={theme.colors.textSub} /><Text style={styles.postActionText}>アーカイブ</Text></Pressable>
+            <Pressable style={styles.postActionItem}><Ionicons name='bookmark-outline' size={16} color={theme.colors.textSub} /><Text style={styles.postActionText}>保存</Text></Pressable>
+          </View>
+        </View>
       ))}
     </ScreenContainer>
   );
@@ -313,6 +323,11 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
     marginTop: theme.spacing.sm,
   },
+  metricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   metric: {
     color: theme.colors.textSub,
     fontWeight: '700',
@@ -326,5 +341,30 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: theme.colors.text,
     lineHeight: 22,
+  },
+  tagRow: {
+    marginTop: theme.spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tags: {
+    color: theme.colors.primary,
+    fontWeight: '700',
+  },
+  postActions: {
+    marginTop: theme.spacing.sm,
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+  },
+  postActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  postActionText: {
+    color: theme.colors.textSub,
+    fontWeight: '700',
+    fontSize: 12,
   },
 });

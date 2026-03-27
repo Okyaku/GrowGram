@@ -1,7 +1,7 @@
 import React from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CustomButton, ScreenContainer } from '../src/components/common';
+import { ScreenContainer } from '../src/components/common';
 import { theme } from '../src/theme';
 
 export default function LegalScreen() {
@@ -17,12 +17,6 @@ export default function LegalScreen() {
       <View style={styles.sectionBox}>
         <View style={styles.sectionHeader}><Ionicons name='shield-checkmark' size={16} color={theme.colors.primary} /><Text style={styles.sectionTitle}>プライバシーポリシー</Text></View>
         <Text style={styles.bodyText}>投稿データ・プロフィール情報はサービス提供と分析改善の目的で利用します。</Text>
-      </View>
-
-      <View style={styles.withdrawCard}>
-        <Text style={styles.withdrawTitle}>アカウントの退会</Text>
-        <Text style={styles.withdrawText}>退会すると、投稿履歴・プロフィール・バッジ情報にアクセスできなくなります。</Text>
-        <CustomButton label='アカウント退会' variant='danger' onPress={() => Alert.alert('退会手続き', '退会申請を受け付けました。')} />
       </View>
     </ScreenContainer>
   );
@@ -55,24 +49,5 @@ const styles = StyleSheet.create({
   bodyText: {
     color: theme.colors.textSub,
     lineHeight: 22,
-  },
-  withdrawCard: {
-    marginTop: theme.spacing.md,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.md,
-  },
-  withdrawTitle: {
-    color: theme.colors.text,
-    fontWeight: '900',
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  withdrawText: {
-    color: theme.colors.textSub,
-    lineHeight: 22,
-    marginBottom: theme.spacing.sm,
   },
 });

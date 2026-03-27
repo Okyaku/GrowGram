@@ -7,6 +7,7 @@ import { theme } from '../../src/theme';
 
 export default function ProfileDetailScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
+  const postCount = 4;
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
@@ -15,6 +16,11 @@ export default function ProfileDetailScreen() {
         <View style={styles.avatarWrap}><View style={styles.avatar} /></View>
         <Text style={styles.name}>ユーザー {userId}</Text>
         <Text style={styles.bio}>毎日コツコツ積み上げるのが目標です。開発と学習を継続中。</Text>
+        <View style={styles.followRow}>
+          <View style={styles.followItem}><Text style={styles.followValue}>82</Text><Text style={styles.followLabel}>フォロー中</Text></View>
+          <View style={styles.followItem}><Text style={styles.followValue}>124</Text><Text style={styles.followLabel}>フォロワー</Text></View>
+          <View style={styles.followItem}><Text style={styles.followValue}>{postCount}</Text><Text style={styles.followLabel}>投稿数</Text></View>
+        </View>
         <View style={styles.badgesRow}>
           <View style={styles.badge}><Ionicons name='flame' size={14} color={theme.colors.primary} /><Text style={styles.badgeText}>情熱</Text></View>
           <View style={styles.badge}><Ionicons name='school' size={14} color={theme.colors.primary} /><Text style={styles.badgeText}>学習</Text></View>
@@ -22,8 +28,8 @@ export default function ProfileDetailScreen() {
         </View>
       </View>
 
-      <Text style={styles.section}>過去の投稿</Text>
-      {Array.from({ length: 4 }).map((_, i) => (
+      <Text style={styles.section}>過去の投稿（{postCount}件）</Text>
+      {Array.from({ length: postCount }).map((_, i) => (
         <View key={i} style={styles.postCard}>
           <Image
             source={{ uri: `https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000&sig=${i}` }}
@@ -83,6 +89,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: theme.spacing.xs,
     marginTop: theme.spacing.sm,
+  },
+  followRow: {
+    flexDirection: 'row',
+    marginTop: theme.spacing.sm,
+    gap: theme.spacing.md,
+  },
+  followItem: {
+    alignItems: 'center',
+  },
+  followValue: {
+    color: theme.colors.primary,
+    fontWeight: '900',
+    fontSize: 18,
+  },
+  followLabel: {
+    color: theme.colors.textSub,
+    fontWeight: '700',
+    fontSize: 12,
+    marginTop: 2,
   },
   badge: {
     flexDirection: 'row',

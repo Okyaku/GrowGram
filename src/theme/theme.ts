@@ -1,15 +1,16 @@
 import { Platform, TextStyle, ViewStyle } from 'react-native';
 
 export const colors = {
-  primary: '#F97316',
-  background: '#FFFFFF',
-  surface: '#F3F4F6',
-  text: '#1F2937',
-  textSub: '#6B7280',
-  success: '#10B981',
-  danger: '#EF4444',
-  border: '#E5E7EB',
-  white: '#FFFFFF',
+  primary: '#FF7A00',
+  background: '#0F0C0A',
+  surface: '#171311',
+  text: '#F5F2EE',
+  textSub: '#A89E95',
+  success: '#13C388',
+  danger: '#FF5A5F',
+  border: '#2B221E',
+  white: '#1D1714',
+  onPrimary: '#FFF8F2',
   black: '#000000',
 };
 

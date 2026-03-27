@@ -1,12 +1,20 @@
 import React from 'react';
 import { ImageBackground, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenContainer } from '../../src/components/common';
 import { theme } from '../../src/theme';
 
 export default function StoryViewScreen() {
+  const router = useRouter();
   const { storyId } = useLocalSearchParams<{ storyId: string }>();
+
+  const storyMeta =
+    storyId === 'p1'
+      ? { name: 'ALEX_DEV', time: '1時間前' }
+      : storyId === 'p2'
+        ? { name: 'MIND_SET', time: '2時間前' }
+        : { name: 'USER', time: 'たった今' };
 
   return (
     <ScreenContainer padded={false}>
@@ -20,12 +28,12 @@ export default function StoryViewScreen() {
 
         <View style={styles.topRow}>
           <View>
-            <Text style={styles.name}>佐藤健太</Text>
-            <Text style={styles.time}>2時間前</Text>
+            <Text style={styles.name}>{storyMeta.name}</Text>
+            <Text style={styles.time}>{storyMeta.time}</Text>
           </View>
           <View style={styles.actions}>
             <Pressable style={styles.actionBtn}><Ionicons name='ellipsis-horizontal' size={16} color={theme.colors.text} /></Pressable>
-            <Pressable style={styles.actionBtn}><Ionicons name='close' size={16} color={theme.colors.text} /></Pressable>
+            <Pressable style={styles.actionBtn} onPress={() => router.back()}><Ionicons name='close' size={16} color={theme.colors.text} /></Pressable>
           </View>
         </View>
 
@@ -39,7 +47,7 @@ export default function StoryViewScreen() {
 
           <View style={styles.inputRow}>
             <TextInput placeholder='メッセージを送信...' placeholderTextColor={theme.colors.textSub} style={styles.input} />
-            <Pressable style={styles.sendBtn}><Ionicons name='send' size={20} color={theme.colors.white} /></Pressable>
+            <Pressable style={styles.sendBtn}><Ionicons name='send' size={20} color={theme.colors.onPrimary} /></Pressable>
           </View>
         </View>
       </ImageBackground>

@@ -30,18 +30,18 @@ const getVariantStyle = (variant: Variant) => {
     case 'success':
       return {
         container: { backgroundColor: theme.colors.success, borderColor: 'transparent' },
-        text: { color: theme.colors.white },
+        text: { color: theme.colors.onPrimary },
       };
     case 'danger':
       return {
         container: { backgroundColor: theme.colors.danger, borderColor: 'transparent' },
-        text: { color: theme.colors.white },
+        text: { color: theme.colors.onPrimary },
       };
     case 'primary':
     default:
       return {
         container: { backgroundColor: theme.colors.primary, borderColor: 'transparent' },
-        text: { color: theme.colors.white },
+        text: { color: theme.colors.onPrimary },
       };
   }
 };
@@ -76,7 +76,7 @@ export const CustomButton: React.FC<Props> = ({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'secondary' || variant === 'outline' ? theme.colors.primary : theme.colors.white}
+          color={variant === 'secondary' || variant === 'outline' ? theme.colors.primary : theme.colors.onPrimary}
         />
       ) : (
         <Text style={[styles.label, variantStyle.text, textStyle]}>{label}</Text>

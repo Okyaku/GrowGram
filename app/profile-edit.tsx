@@ -39,7 +39,7 @@ export default function ProfileEditScreen() {
         <Pressable style={styles.avatarButton} onPress={pickAvatar}>
           {avatar ? <Image source={{ uri: avatar }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder} />}
         </Pressable>
-        <Pressable style={styles.editBadge}><Ionicons name='create' size={14} color={theme.colors.white} /></Pressable>
+        <Pressable style={styles.editBadge}><Ionicons name='create' size={14} color={theme.colors.onPrimary} /></Pressable>
         <Text style={styles.helper}>写真をアップロード</Text>
         <Text style={styles.helperSub}>自分を表現する写真を選びましょう</Text>
       </View>
@@ -120,7 +120,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: theme.colors.white,
+    borderColor: theme.colors.background,
   },
   helper: {
     marginTop: 10,

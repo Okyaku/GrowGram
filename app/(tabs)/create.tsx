@@ -51,7 +51,7 @@ export default function CreateScreen() {
               {activeRoadmap.mode === 'ai-auto' ? 'AI自動生成ロードマップ' : `レベル: ${activeRoadmap.level}`}
             </Text>
           </View>
-          <View style={styles.objectiveIcon}><Ionicons name='desktop-outline' size={20} color={theme.colors.white} /></View>
+          <View style={styles.objectiveIcon}><Ionicons name='desktop-outline' size={20} color={theme.colors.onPrimary} /></View>
         </View>
       </View>
 
@@ -93,7 +93,7 @@ export default function CreateScreen() {
                 <Ionicons
                   name={milestone.status === 'completed' ? 'checkmark' : milestone.status === 'current' ? 'flash' : 'lock-closed'}
                   size={16}
-                  color={milestone.status === 'completed' || milestone.status === 'current' ? theme.colors.white : theme.colors.textSub}
+                  color={milestone.status === 'completed' || milestone.status === 'current' ? theme.colors.onPrimary : theme.colors.textSub}
                 />
               </View>
               <Pressable

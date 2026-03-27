@@ -42,7 +42,7 @@ export default function TabsLayout() {
           title: '',
           tabBarIcon: () => (
             <View style={styles.createIconWrap}>
-              <Ionicons name='git-network' size={24} color={theme.colors.white} />
+              <Ionicons name='git-network' size={24} color={theme.colors.onPrimary} />
               {postCredits > 0 ? (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{postCredits}</Text>
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 4,
-    borderColor: theme.colors.white,
+    borderColor: theme.colors.background,
     ...theme.shadows.soft,
   },
   badge: {
@@ -112,13 +112,13 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     backgroundColor: theme.colors.danger,
     borderWidth: 2,
-    borderColor: theme.colors.white,
+    borderColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
   badgeText: {
-    color: theme.colors.white,
+    color: theme.colors.onPrimary,
     fontSize: 12,
     fontWeight: '800',
   },

@@ -1,18 +1,34 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { CustomButton } from '../../src/components/common';
 import { ScreenContainer } from '../../src/components/common';
+import { useRoadmap } from '../../src/store/roadmap-context';
 import { theme } from '../../src/theme';
 
 const menus = [
   { label: 'プロフィール編集', route: '/profile-edit' as const, icon: 'person-circle' as const },
-  { label: '通知', route: '/notifications' as const, icon: 'notifications' as const },
-  { label: '利用規約・プライバシー', route: '/legal' as const, icon: 'document-text' as const },
+  { label: '設定', route: '/settings' as const, icon: 'settings' as const },
 ];
 
 export default function MyPageScreen() {
   const router = useRouter();
+  const { logout } = useRoadmap();
+
+  const onLogout = () => {
+    Alert.alert('ログアウト', 'ログアウトしますか？', [
+      { text: 'キャンセル', style: 'cancel' },
+      {
+        text: 'ログアウト',
+        style: 'destructive',
+        onPress: () => {
+          logout();
+          router.replace('/(auth)/login');
+        },
+      },
+    ]);
+  };
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
@@ -26,6 +42,7 @@ export default function MyPageScreen() {
           <View style={styles.statItem}><Text style={styles.statNumber}>82</Text><Text style={styles.statLabel}>反応</Text></View>
           <View style={styles.statItem}><Text style={styles.statNumber}>210</Text><Text style={styles.statLabel}>積み上げ</Text></View>
         </View>
+        <CustomButton label='プロフィールを編集' onPress={() => router.push('/profile-edit')} style={styles.editProfileButton} />
       </View>
 
       {menus.map((menu) => (
@@ -37,6 +54,14 @@ export default function MyPageScreen() {
           <Ionicons name='chevron-forward' size={18} color={theme.colors.textSub} />
         </Pressable>
       ))}
+
+      <Pressable style={[styles.menuItem, styles.logoutItem]} onPress={onLogout}>
+        <View style={styles.menuLeft}>
+          <Ionicons name='log-out' size={18} color={theme.colors.danger} />
+          <Text style={styles.logoutText}>ログアウト</Text>
+        </View>
+        <Ionicons name='chevron-forward' size={18} color={theme.colors.textSub} />
+      </Pressable>
     </ScreenContainer>
   );
 }
@@ -73,6 +98,10 @@ const styles = StyleSheet.create({
   caption: {
     color: theme.colors.textSub,
     marginTop: 4,
+  },
+  editProfileButton: {
+    marginTop: theme.spacing.md,
+    width: '100%',
   },
   statWrap: {
     flexDirection: 'row',
@@ -118,5 +147,12 @@ const styles = StyleSheet.create({
   menuText: {
     color: theme.colors.text,
     fontWeight: '700',
+  },
+  logoutItem: {
+    borderColor: theme.colors.danger,
+  },
+  logoutText: {
+    color: theme.colors.danger,
+    fontWeight: '800',
   },
 });
