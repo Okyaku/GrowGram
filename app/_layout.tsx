@@ -1,4 +1,7 @@
+import 'react-native-get-random-values';
+
 import React from 'react';
+import { Amplify } from 'aws-amplify';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import {
@@ -7,8 +10,11 @@ import {
   SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
 import { Text, TextInput } from 'react-native';
+import awsExports from '../src/aws-exports';
 import { theme } from '../src/theme';
 import { RoadmapProvider } from '../src/store/roadmap-context';
+
+Amplify.configure(awsExports);
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({

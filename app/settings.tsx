@@ -2,6 +2,7 @@ import React from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { signOut } from 'aws-amplify/auth';
 import { ScreenContainer } from '../src/components/common';
 import { useRoadmap } from '../src/store/roadmap-context';
 import { theme } from '../src/theme';
@@ -16,6 +17,17 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { logout } = useRoadmap();
 
+  const handleSignOut = React.useCallback(async () => {
+    try {
+      await signOut();
+    } catch {
+      // Ignore auth provider errors and always clear local app state.
+    } finally {
+      logout({ clearProgress: true });
+      router.replace('/(auth)/login');
+    }
+  }, [logout, router]);
+
   const onDeleteAccount = () => {
     Alert.alert('アカウント退会', 'この操作は取り消せません。退会しますか？', [
       { text: 'キャンセル', style: 'cancel' },
@@ -23,8 +35,7 @@ export default function SettingsScreen() {
         text: '退会する',
         style: 'destructive',
         onPress: () => {
-          logout();
-          router.replace('/(auth)/login');
+          void handleSignOut();
         },
       },
     ]);

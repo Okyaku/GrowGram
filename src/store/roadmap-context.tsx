@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 type MilestoneBase = {
   id: string;
@@ -58,9 +59,20 @@ type RoadmapContextType = {
   addRoadmap: (params: { goal: string; mode: BuildMode; level?: RoadmapLevel }) => void;
   updateMilestone: (params: { roadmapId: string; milestoneId: string; title: string; subtitle: string }) => void;
   recordDailyActivity: (source: ActivitySource) => void;
-  logout: () => void;
+  adjustScore: (delta: number) => void;
+  logout: (options?: { clearProgress?: boolean }) => void;
   clearCurrentMilestone: () => void;
   consumePostCredit: (milestoneId: string) => boolean;
+};
+
+type PersistedRoadmapState = {
+  roadmaps: RoadmapItem[];
+  activeRoadmapId: string;
+  streakDays: number;
+  lastActivityDate: string;
+  totalScore: number;
+  activityByDate: Record<string, ActivityLevel>;
+  notifications: AppNotification[];
 };
 
 const levelToCount: Record<RoadmapLevel, number> = {
@@ -135,6 +147,8 @@ const initialRoadmap = createRoadmapItem({
 initialRoadmap.completedCount = 1;
 initialRoadmap.unlockedMilestoneIds = [initialRoadmap.milestoneTemplates[0].id];
 
+const ROADMAP_STORAGE_KEY = '@growgram/roadmap-state/v1';
+
 const RoadmapContext = createContext<RoadmapContextType | null>(null);
 
 export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -153,6 +167,99 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
       message: `最初のマイルストーン「${initialRoadmap.milestoneTemplates[0].title}」が投稿可能です。`,
       time: '今',
     },
+  ]);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadPersistedState = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ROADMAP_STORAGE_KEY);
+        if (!raw) {
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as Partial<PersistedRoadmapState>;
+        if (!mounted || !parsed) {
+          return;
+        }
+
+        if (Array.isArray(parsed.roadmaps) && parsed.roadmaps.length > 0) {
+          setRoadmaps(parsed.roadmaps);
+
+          const fallbackActive = parsed.roadmaps[0]?.id ?? initialRoadmap.id;
+          setActiveRoadmapId(parsed.activeRoadmapId || fallbackActive);
+        }
+
+        if (typeof parsed.streakDays === 'number') {
+          setStreakDays(parsed.streakDays);
+        }
+
+        if (typeof parsed.lastActivityDate === 'string' && parsed.lastActivityDate.length > 0) {
+          setLastActivityDate(parsed.lastActivityDate);
+        }
+
+        if (typeof parsed.totalScore === 'number') {
+          setTotalScore(parsed.totalScore);
+        }
+
+        if (parsed.activityByDate && typeof parsed.activityByDate === 'object') {
+          setActivityByDate(parsed.activityByDate as Record<string, ActivityLevel>);
+        }
+
+        if (Array.isArray(parsed.notifications)) {
+          setNotifications(parsed.notifications);
+        }
+      } catch (error) {
+        console.warn('[Roadmap] failed to restore persisted state:', error);
+      } finally {
+        if (mounted) {
+          setIsHydrated(true);
+        }
+      }
+    };
+
+    void loadPersistedState();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    const persistState = async () => {
+      const payload: PersistedRoadmapState = {
+        roadmaps,
+        activeRoadmapId,
+        streakDays,
+        lastActivityDate,
+        totalScore,
+        activityByDate,
+        notifications,
+      };
+
+      try {
+        await AsyncStorage.setItem(ROADMAP_STORAGE_KEY, JSON.stringify(payload));
+      } catch (error) {
+        console.warn('[Roadmap] failed to persist state:', error);
+      }
+    };
+
+    void persistState();
+  }, [
+    activityByDate,
+    activeRoadmapId,
+    isHydrated,
+    lastActivityDate,
+    notifications,
+    roadmaps,
+    streakDays,
+    totalScore,
   ]);
 
   const activeRoadmap = useMemo(() => {
@@ -411,7 +518,11 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
-  const logout = () => {
+  const logout: RoadmapContextType['logout'] = (options) => {
+    if (!options?.clearProgress) {
+      return;
+    }
+
     setRoadmaps([initialRoadmap]);
     setActiveRoadmapId(initialRoadmap.id);
     setStreakDays(1);
@@ -427,6 +538,8 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
         time: '今',
       },
     ]);
+
+    void AsyncStorage.removeItem(ROADMAP_STORAGE_KEY);
   };
 
   return (
@@ -454,6 +567,12 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addRoadmap,
         updateMilestone,
         recordDailyActivity,
+        adjustScore: (delta) => {
+          if (!Number.isFinite(delta) || delta === 0) {
+            return;
+          }
+          setTotalScore((prev) => Math.max(0, prev + Math.trunc(delta)));
+        },
         logout,
         clearCurrentMilestone,
         consumePostCredit,

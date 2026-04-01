@@ -1,0 +1,106 @@
+type Post
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  content: String!
+  title: String
+  tags: [String]
+  imageKey: String
+  isArchived: Boolean
+  passion: Int
+  logic: Int
+  routine: Int
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Story
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  imageKey: String!
+  caption: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type StoryReaction
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  storyId: ID!
+  reactionType: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PostLike
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  postId: ID!
+  reactionType: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PostSave
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  postId: ID!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Goal
+  @model
+  @auth(rules: [{ allow: owner }]) {
+  id: ID!
+  title: String!
+  deadline: AWSDate
+  isCompleted: Boolean!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Profile
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  username: String!
+  bio: String
+  iconImageKey: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}

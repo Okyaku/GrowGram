@@ -1,7 +1,11 @@
 import React from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { generateClient } from 'aws-amplify/api';
+import { signOut } from 'aws-amplify/auth';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { getUrl } from 'aws-amplify/storage';
 import { CustomButton } from '../../src/components/common';
 import { ScreenContainer } from '../../src/components/common';
 import { useRoadmap } from '../../src/store/roadmap-context';
@@ -12,9 +16,101 @@ const menus = [
   { label: '設定', route: '/settings' as const, icon: 'settings' as const },
 ];
 
+type CloudProfile = {
+  id: string;
+  username?: string | null;
+  bio?: string | null;
+  iconImageKey?: string | null;
+};
+
+const getProfileQuery = /* GraphQL */ `
+  query GetProfile($id: ID!) {
+    getProfile(id: $id) {
+      id
+      username
+      bio
+      iconImageKey
+    }
+  }
+`;
+
+const listPostsCountQuery = /* GraphQL */ `
+  query ListPostsCount {
+    listPosts(limit: 1000) {
+      items {
+        id
+      }
+    }
+  }
+`;
+
 export default function MyPageScreen() {
   const router = useRouter();
+  const client = React.useMemo(() => generateClient(), []);
   const { logout } = useRoadmap();
+  const [name, setName] = React.useState('ユーザー');
+  const [caption, setCaption] = React.useState('プロフィールを設定してください');
+  const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
+  const [postCount, setPostCount] = React.useState(0);
+
+  const loadMyPageData = React.useCallback(async () => {
+    try {
+      const authUser = await getCurrentUser();
+      const userId = authUser.userId;
+      if (!userId) {
+        return;
+      }
+
+      const [profileResponse, postsResponse] = await Promise.all([
+        client.graphql({ query: getProfileQuery, variables: { id: userId } }),
+        client.graphql({ query: listPostsCountQuery }),
+      ]);
+
+      const profile = (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
+
+      if (profile) {
+        setName(profile.username?.trim() || 'ユーザー');
+        setCaption(profile.bio?.trim() || 'プロフィールを設定してください');
+
+        if (profile.iconImageKey) {
+          try {
+            const urlResult = await getUrl({ path: profile.iconImageKey });
+            setAvatarUrl(urlResult.url.toString());
+          } catch {
+            setAvatarUrl(null);
+          }
+        } else {
+          setAvatarUrl(null);
+        }
+      }
+
+      const posts =
+        (postsResponse as { data?: { listPosts?: { items?: Array<{ id?: string | null } | null> } } }).data?.listPosts
+          ?.items ?? [];
+      setPostCount(posts.filter((item) => Boolean(item?.id)).length);
+    } catch (error) {
+      if (__DEV__) {
+        console.log('[MyPage] failed to load profile:', error);
+      }
+    }
+  }, [client]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadMyPageData();
+    }, [loadMyPageData])
+  );
+
+  const handleSignOut = React.useCallback(async () => {
+    try {
+      await signOut();
+    } catch {
+      // Ignore auth provider errors and always clear local app state.
+    } finally {
+      logout();
+      router.replace('/(auth)/login');
+    }
+  }, [logout, router]);
 
   const onLogout = () => {
     Alert.alert('ログアウト', 'ログアウトしますか？', [
@@ -23,8 +119,7 @@ export default function MyPageScreen() {
         text: 'ログアウト',
         style: 'destructive',
         onPress: () => {
-          logout();
-          router.replace('/(auth)/login');
+          void handleSignOut();
         },
       },
     ]);
@@ -34,11 +129,15 @@ export default function MyPageScreen() {
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <Text style={styles.pageTitle}>設定 / マイページ</Text>
       <View style={styles.profileCard}>
-        <View style={styles.avatar} />
-        <Text style={styles.name}>佐藤健太</Text>
-        <Text style={styles.caption}>Full-stack Developer を目指して学習中</Text>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatar} />
+        )}
+        <Text style={styles.name}>{name}</Text>
+        <Text style={styles.caption}>{caption}</Text>
         <View style={styles.statWrap}>
-          <View style={styles.statItem}><Text style={styles.statNumber}>124</Text><Text style={styles.statLabel}>投稿</Text></View>
+          <View style={styles.statItem}><Text style={styles.statNumber}>{postCount}</Text><Text style={styles.statLabel}>投稿</Text></View>
           <View style={styles.statItem}><Text style={styles.statNumber}>82</Text><Text style={styles.statLabel}>反応</Text></View>
           <View style={styles.statItem}><Text style={styles.statNumber}>210</Text><Text style={styles.statLabel}>積み上げ</Text></View>
         </View>

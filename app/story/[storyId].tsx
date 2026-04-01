@@ -1,48 +1,364 @@
 import React from 'react';
-import { ImageBackground, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { generateClient } from 'aws-amplify/api';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { getUrl } from 'aws-amplify/storage';
 import { ScreenContainer } from '../../src/components/common';
+import { useRoadmap } from '../../src/store/roadmap-context';
 import { theme } from '../../src/theme';
+
+type CloudStory = {
+  id: string;
+  owner?: string | null;
+  imageKey: string;
+  caption?: string | null;
+  createdAt?: string | null;
+};
+
+type CloudProfile = {
+  id: string;
+  username?: string | null;
+  iconImageKey?: string | null;
+};
+
+type StoryReaction = {
+  id: string;
+  storyId: string;
+  owner?: string | null;
+  reactionType?: string | null;
+};
+
+type ReactionType = 'passion' | 'logic' | 'routine';
+
+const getStoryQuery = /* GraphQL */ `
+  query GetStory($id: ID!) {
+    getStory(id: $id) {
+      id
+      owner
+      imageKey
+      caption
+      createdAt
+    }
+  }
+`;
+
+const getProfileQuery = /* GraphQL */ `
+  query GetProfile($id: ID!) {
+    getProfile(id: $id) {
+      id
+      username
+      iconImageKey
+    }
+  }
+`;
+
+const listStoryReactionsQuery = /* GraphQL */ `
+  query ListStoryReactions {
+    listStoryReactions(limit: 1000) {
+      items {
+        id
+        storyId
+        owner
+        reactionType
+      }
+    }
+  }
+`;
+
+const createStoryReactionMutation = /* GraphQL */ `
+  mutation CreateStoryReaction($input: CreateStoryReactionInput!) {
+    createStoryReaction(input: $input) {
+      id
+      storyId
+      reactionType
+    }
+  }
+`;
+
+const deleteStoryReactionMutation = /* GraphQL */ `
+  mutation DeleteStoryReaction($input: DeleteStoryReactionInput!) {
+    deleteStoryReaction(input: $input) {
+      id
+    }
+  }
+`;
 
 export default function StoryViewScreen() {
   const router = useRouter();
+  const client = React.useMemo(() => generateClient(), []);
+  const { recordDailyActivity, adjustScore } = useRoadmap();
   const { storyId } = useLocalSearchParams<{ storyId: string }>();
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [story, setStory] = React.useState<CloudStory | null>(null);
+  const [profile, setProfile] = React.useState<CloudProfile | null>(null);
+  const [imageUrl, setImageUrl] = React.useState('https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200');
+  const [reactionRecordIdByType, setReactionRecordIdByType] = React.useState<Record<string, string>>({});
+  const [gestureFeedback, setGestureFeedback] = React.useState<{
+    label: string;
+    icon: 'flame' | 'bulb' | 'ribbon';
+    backgroundColor: string;
+    borderColor: string;
+  } | null>(null);
+  const tapStateRef = React.useRef<{ count: number; timer?: ReturnType<typeof setTimeout> }>({ count: 0 });
+  const feedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const storyMeta =
-    storyId === 'p1'
-      ? { name: 'ALEX_DEV', time: '1時間前' }
-      : storyId === 'p2'
-        ? { name: 'MIND_SET', time: '2時間前' }
-        : { name: 'USER', time: 'たった今' };
+  React.useEffect(() => {
+    if (!storyId) {
+      setIsLoading(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        setIsLoading(true);
+        const storyResponse = await client.graphql({ query: getStoryQuery, variables: { id: storyId } });
+        const loadedStory = (storyResponse as { data?: { getStory?: CloudStory | null } }).data?.getStory;
+
+        if (!loadedStory) {
+          setStory(null);
+          return;
+        }
+        setStory(loadedStory);
+
+        if (loadedStory.imageKey) {
+          try {
+            const resolved = await getUrl({ path: loadedStory.imageKey });
+            setImageUrl(resolved.url.toString());
+          } catch {
+            setImageUrl('https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200');
+          }
+        }
+
+        if (loadedStory.owner) {
+          try {
+            const profileResponse = await client.graphql({ query: getProfileQuery, variables: { id: loadedStory.owner } });
+            const loadedProfile = (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile;
+            setProfile(loadedProfile ?? null);
+          } catch {
+            setProfile(null);
+          }
+        }
+
+        try {
+          const currentUser = await getCurrentUser();
+          const reactionsResponse = await client.graphql({ query: listStoryReactionsQuery });
+          const items =
+            (reactionsResponse as { data?: { listStoryReactions?: { items?: Array<StoryReaction | null> } } }).data
+              ?.listStoryReactions?.items ?? [];
+
+          const mine: Record<string, string> = {};
+          items
+            .filter((item): item is StoryReaction => Boolean(item?.id && item.storyId && item.reactionType))
+            .filter((item) => item.storyId === loadedStory.id && item.owner === currentUser.username)
+            .forEach((item) => {
+              if (item.reactionType) {
+                mine[item.reactionType] = item.id;
+              }
+            });
+          setReactionRecordIdByType(mine);
+        } catch {
+          setReactionRecordIdByType({});
+        }
+      } catch (error) {
+        console.error('[StoryView] failed to load story:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [client, storyId]);
+
+  const displayName = profile?.username || (story?.owner ?? 'USER').split('@')[0].toUpperCase();
+  const created = story?.createdAt ? new Date(story.createdAt) : null;
+  const timeLabel = created ? `${created.getMonth() + 1}/${created.getDate()} ${created.getHours()}:${`${created.getMinutes()}`.padStart(2, '0')}` : 'たった今';
+
+  const toggleStoryReaction = React.useCallback(async (reactionType: ReactionType) => {
+    if (!story?.id) {
+      return;
+    }
+
+    try {
+      const existingId = reactionRecordIdByType[reactionType];
+      if (existingId) {
+        await client.graphql({ query: deleteStoryReactionMutation, variables: { input: { id: existingId } } });
+        adjustScore(-30);
+        setReactionRecordIdByType((prev) => {
+          const next = { ...prev };
+          delete next[reactionType];
+          return next;
+        });
+      } else {
+        const response = await client.graphql({
+          query: createStoryReactionMutation,
+          variables: { input: { storyId: story.id, reactionType } },
+        });
+        const createdId =
+          (response as { data?: { createStoryReaction?: { id?: string } } }).data?.createStoryReaction?.id ?? '';
+        if (createdId) {
+          setReactionRecordIdByType((prev) => ({ ...prev, [reactionType]: createdId }));
+          recordDailyActivity('action');
+          adjustScore(30);
+        }
+      }
+    } catch (error) {
+      console.error('[StoryView] failed to toggle reaction:', error);
+    }
+  }, [adjustScore, client, reactionRecordIdByType, recordDailyActivity, story?.id]);
+
+  const showGestureFeedback = React.useCallback((type: ReactionType) => {
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+
+    if (type === 'passion') {
+      setGestureFeedback({
+        label: '情熱',
+        icon: 'flame',
+        backgroundColor: '#FF6A3D',
+        borderColor: '#FFC1AE',
+      });
+    }
+    if (type === 'logic') {
+      setGestureFeedback({
+        label: '論理',
+        icon: 'bulb',
+        backgroundColor: '#2C7BFF',
+        borderColor: '#B8D2FF',
+      });
+    }
+    if (type === 'routine') {
+      setGestureFeedback({
+        label: '一貫性',
+        icon: 'ribbon',
+        backgroundColor: '#10A37F',
+        borderColor: '#A7E3D4',
+      });
+    }
+
+    feedbackTimerRef.current = setTimeout(() => {
+      setGestureFeedback(null);
+    }, 650);
+  }, []);
+
+  const clearTapState = React.useCallback(() => {
+    if (tapStateRef.current.timer) {
+      clearTimeout(tapStateRef.current.timer);
+    }
+    tapStateRef.current = { count: 0 };
+  }, []);
+
+  const onStoryLongPress = React.useCallback(() => {
+    clearTapState();
+    showGestureFeedback('passion');
+    void toggleStoryReaction('passion');
+  }, [clearTapState, showGestureFeedback, toggleStoryReaction]);
+
+  const onStoryTap = React.useCallback(() => {
+    const state = tapStateRef.current;
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+    state.count += 1;
+    state.timer = setTimeout(() => {
+      const count = state.count;
+      tapStateRef.current = { count: 0 };
+      if (count >= 3) {
+        showGestureFeedback('routine');
+        void toggleStoryReaction('routine');
+        return;
+      }
+      if (count === 2) {
+        showGestureFeedback('logic');
+        void toggleStoryReaction('logic');
+      }
+    }, 280);
+  }, [showGestureFeedback, toggleStoryReaction]);
+
+  React.useEffect(() => {
+    return () => {
+      if (tapStateRef.current.timer) {
+        clearTimeout(tapStateRef.current.timer);
+      }
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  if (isLoading) {
+    return (
+      <ScreenContainer>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={styles.loadingText}>ストーリーを読み込み中...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (!story) {
+    return (
+      <ScreenContainer>
+        <View style={styles.loadingWrap}>
+          <Text style={styles.loadingText}>ストーリーが見つかりませんでした。</Text>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>戻る</Text>
+          </Pressable>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer padded={false}>
-      <ImageBackground
-        source={{ uri: `https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&sig=${storyId}` }}
-        style={styles.hero}
-      >
-        <View style={styles.topBars}>
-          {[1, 2, 3, 4].map((item) => <View key={item} style={[styles.bar, item === 2 && styles.barActive]} />)}
-        </View>
+      <View style={styles.container}>
+        <ImageBackground
+          source={{ uri: imageUrl }}
+          style={styles.hero}
+          imageStyle={styles.heroImage}
+          resizeMode='contain'
+        >
+          <Pressable style={styles.heroOverlay} onPress={onStoryTap} onLongPress={onStoryLongPress}>
+            <View style={styles.topBars}>
+              {[1, 2, 3, 4].map((item) => <View key={item} style={[styles.bar, item === 2 && styles.barActive]} />)}
+            </View>
 
-        <View style={styles.topRow}>
-          <View>
-            <Text style={styles.name}>{storyMeta.name}</Text>
-            <Text style={styles.time}>{storyMeta.time}</Text>
-          </View>
-          <View style={styles.actions}>
-            <Pressable style={styles.actionBtn}><Ionicons name='ellipsis-horizontal' size={16} color={theme.colors.text} /></Pressable>
-            <Pressable style={styles.actionBtn} onPress={() => router.back()}><Ionicons name='close' size={16} color={theme.colors.text} /></Pressable>
-          </View>
-        </View>
+            <View style={styles.topRow}>
+              <View>
+                <Text style={styles.name}>{displayName}</Text>
+                <Text style={styles.time}>{timeLabel}</Text>
+              </View>
+              <View style={styles.actions}>
+                <Pressable style={styles.actionBtn}><Ionicons name='ellipsis-horizontal' size={16} color={theme.colors.text} /></Pressable>
+                <Pressable style={styles.actionBtn} onPress={() => router.back()}><Ionicons name='close' size={16} color={theme.colors.text} /></Pressable>
+              </View>
+            </View>
+            {gestureFeedback ? (
+              <View
+                style={[
+                  styles.gesturePopup,
+                  {
+                    backgroundColor: gestureFeedback.backgroundColor,
+                    borderColor: gestureFeedback.borderColor,
+                  },
+                ]}
+              >
+                <Ionicons name={gestureFeedback.icon} size={20} color={theme.colors.onPrimary} />
+                <Text style={styles.gesturePopupText}>{gestureFeedback.label}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </ImageBackground>
 
         <View style={styles.bottomPanel}>
+          {story.caption ? <Text style={styles.caption}>{story.caption}</Text> : null}
           <Text style={styles.reactionTitle}>REACTION GUIDE</Text>
+          <Text style={styles.reactionGuideHint}>長押し: 情熱 / 2回タップ: 論理 / 3回タップ: 一貫性</Text>
           <View style={styles.row}>
-            <View style={styles.reactionBox}><Ionicons name='flame' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>情熱</Text><Text style={styles.reactionHint}>長押し</Text></View>
-            <View style={styles.reactionBox}><Ionicons name='bulb' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>論理</Text><Text style={styles.reactionHint}>2回タップ</Text></View>
-            <View style={styles.reactionBox}><Ionicons name='ribbon' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>一貫性</Text><Text style={styles.reactionHint}>3回タップ</Text></View>
+            <View style={[styles.reactionBox, reactionRecordIdByType.passion && styles.reactionBoxActive]}><Ionicons name='flame' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>情熱</Text><Text style={styles.reactionHint}>長押し</Text></View>
+            <View style={[styles.reactionBox, reactionRecordIdByType.logic && styles.reactionBoxActive]}><Ionicons name='bulb' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>論理</Text><Text style={styles.reactionHint}>2回タップ</Text></View>
+            <View style={[styles.reactionBox, reactionRecordIdByType.routine && styles.reactionBoxActive]}><Ionicons name='ribbon' size={18} color={theme.colors.primary} /><Text style={styles.reactionLabel}>一貫性</Text><Text style={styles.reactionHint}>3回タップ</Text></View>
           </View>
 
           <View style={styles.inputRow}>
@@ -50,15 +366,67 @@ export default function StoryViewScreen() {
             <Pressable style={styles.sendBtn}><Ionicons name='send' size={20} color={theme.colors.onPrimary} /></Pressable>
           </View>
         </View>
-      </ImageBackground>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+  },
   hero: {
+    width: '100%',
+    aspectRatio: 9 / 13,
+    justifyContent: 'space-between',
+    backgroundColor: '#111111',
+  },
+  heroImage: {
+    resizeMode: 'contain',
+  },
+  heroOverlay: {
     flex: 1,
     justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,0,0,0.14)',
+  },
+  gesturePopup: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '42%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 2,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  gesturePopupText: {
+    color: theme.colors.onPrimary,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  loadingText: {
+    color: theme.colors.text,
+    fontWeight: '700',
+  },
+  backButton: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  backButtonText: {
+    color: theme.colors.onPrimary,
+    fontWeight: '800',
   },
   topBars: {
     flexDirection: 'row',
@@ -82,12 +450,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
   },
   name: {
-    color: theme.colors.text,
+    color: theme.colors.white,
     fontWeight: '900',
     fontSize: 22,
   },
   time: {
-    color: theme.colors.textSub,
+    color: theme.colors.white,
     marginTop: 2,
   },
   actions: {
@@ -105,12 +473,25 @@ const styles = StyleSheet.create({
   bottomPanel: {
     padding: theme.spacing.md,
     backgroundColor: theme.colors.white,
+    flex: 1,
+  },
+  caption: {
+    color: theme.colors.text,
+    fontWeight: '700',
+    marginBottom: theme.spacing.sm,
   },
   reactionTitle: {
     color: theme.colors.primary,
     textAlign: 'center',
     fontWeight: '900',
     letterSpacing: 1,
+    marginBottom: theme.spacing.sm,
+  },
+  reactionGuideHint: {
+    textAlign: 'center',
+    color: theme.colors.textSub,
+    fontSize: 11,
+    fontWeight: '700',
     marginBottom: theme.spacing.sm,
   },
   row: {
@@ -126,6 +507,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     alignItems: 'center',
     paddingVertical: theme.spacing.sm,
+  },
+  reactionBoxActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.white,
   },
   reactionLabel: {
     color: theme.colors.text,

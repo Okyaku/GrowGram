@@ -1,15 +1,72 @@
 import React from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { generateClient } from 'aws-amplify/api';
+import { uploadData } from 'aws-amplify/storage';
+import * as ImagePicker from 'expo-image-picker';
 import { CustomButton, InputField, ScreenContainer } from '../src/components/common';
 import { useRoadmap } from '../src/store/roadmap-context';
 import { theme } from '../src/theme';
 
+const createPostMutation = /* GraphQL */ `
+  mutation CreatePost($input: CreatePostInput!) {
+    createPost(input: $input) {
+      id
+      content
+      imageKey
+    }
+  }
+`;
+
 export default function PostCreateScreen() {
   const router = useRouter();
+  const client = React.useMemo(() => generateClient(), []);
   const params = useLocalSearchParams<{ milestoneId?: string }>();
   const { canCreatePost, postCredits, unlockedMilestones, consumePostCredit } = useRoadmap();
   const [selectedMilestoneId, setSelectedMilestoneId] = React.useState<string>('');
+  const [title, setTitle] = React.useState('');
+  const [content, setContent] = React.useState('');
+  const [tagsText, setTagsText] = React.useState('');
+  const [selectedImageUri, setSelectedImageUri] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const pickImage = React.useCallback(async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('権限が必要です', '画像を選択するにはフォトライブラリへのアクセスを許可してください。');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return;
+    }
+
+    setSelectedImageUri(result.assets[0].uri);
+  }, []);
+
+  const uploadPostImage = React.useCallback(async (uri: string) => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const extension = uri.split('.').pop()?.toLowerCase();
+    const safeExtension = extension && extension.length <= 5 ? extension : 'jpg';
+    const key = `public/posts/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExtension}`;
+
+    await uploadData({
+      path: key,
+      data: blob,
+      options: {
+        contentType: blob.type || `image/${safeExtension}`,
+      },
+    }).result;
+
+    return key;
+  }, []);
 
   React.useEffect(() => {
     if (unlockedMilestones.length === 0) {
@@ -36,9 +93,14 @@ export default function PostCreateScreen() {
     }
   }, [params.milestoneId, selectedMilestoneId, unlockedMilestones]);
 
-  const onPost = () => {
+  const onPost = async () => {
     if (!canCreatePost) {
       Alert.alert('投稿できません', 'ロードマップのマイルストーンを達成すると投稿が解放されます。');
+      return;
+    }
+
+    if (!content.trim()) {
+      Alert.alert('入力不足', '本文を入力してください。');
       return;
     }
 
@@ -47,10 +109,51 @@ export default function PostCreateScreen() {
       return;
     }
 
-    const consumed = consumePostCredit(selectedMilestoneId);
-    if (!consumed) {
-      Alert.alert('投稿できません', '投稿可能回数が不足しています。');
+    const tags = tagsText
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
+    try {
+      setIsSubmitting(true);
+      let imageKey: string | undefined;
+
+      if (selectedImageUri) {
+        try {
+          imageKey = await uploadPostImage(selectedImageUri);
+        } catch (error) {
+          console.error('[PostCreate] failed to upload image, fallback to text-only:', error);
+          Alert.alert('画像アップロード失敗', '画像なしで投稿を続行します。');
+          imageKey = undefined;
+        }
+      }
+
+      await client.graphql({
+        query: createPostMutation,
+        variables: {
+          input: {
+            content: content.trim(),
+            title: title.trim() || undefined,
+            tags,
+            imageKey,
+          },
+        },
+      });
+
+      const consumed = consumePostCredit(selectedMilestoneId);
+      if (!consumed) {
+        Alert.alert('投稿注意', '投稿は保存されましたが、投稿可能回数の更新に失敗しました。');
+      }
+    } catch (error) {
+      console.error('[PostCreate] failed to create post:', error);
+      const reason =
+        typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message ?? '')
+          : '';
+      Alert.alert('投稿失敗', reason ? `投稿の保存に失敗しました。\n${reason}` : '投稿の保存に失敗しました。時間をおいて再試行してください。');
       return;
+    } finally {
+      setIsSubmitting(false);
     }
 
     Alert.alert('投稿完了', '通常投稿を公開しました。');
@@ -93,10 +196,28 @@ export default function PostCreateScreen() {
         );
       })}
 
-      <InputField label='タイトル' placeholder='例: DAY 46 / 100 CODE' />
-      <InputField label='本文' placeholder='取り組み内容を記録...' multiline style={styles.multiline} />
-      <InputField label='タグ' placeholder='例: #engine #render' />
-      <CustomButton label='通常投稿を公開' onPress={onPost} />
+      <InputField label='タイトル' placeholder='例: DAY 46 / 100 CODE' value={title} onChangeText={setTitle} />
+      <InputField label='本文' placeholder='取り組み内容を記録...' multiline style={styles.multiline} value={content} onChangeText={setContent} />
+      <InputField label='タグ' placeholder='例: #engine #render' value={tagsText} onChangeText={setTagsText} />
+
+      <View style={styles.imageSection}>
+        <Text style={styles.sectionLabel}>投稿画像</Text>
+        <CustomButton
+          label={selectedImageUri ? '画像を選び直す' : '画像を選択'}
+          variant='outline'
+          onPress={() => void pickImage()}
+        />
+        {selectedImageUri ? (
+          <View style={styles.previewWrap}>
+            <Image source={{ uri: selectedImageUri }} style={styles.previewImage} />
+            <Pressable onPress={() => setSelectedImageUri(null)} hitSlop={12}>
+              <Text style={styles.removeImageText}>画像を外す</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      <CustomButton label='通常投稿を公開' onPress={() => void onPost()} loading={isSubmitting} />
     </ScreenContainer>
   );
 }
@@ -153,6 +274,29 @@ const styles = StyleSheet.create({
     minHeight: 130,
     textAlignVertical: 'top',
     paddingTop: theme.spacing.sm,
+  },
+  imageSection: {
+    marginBottom: theme.spacing.md,
+  },
+  previewWrap: {
+    marginTop: theme.spacing.sm,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.white,
+    padding: theme.spacing.sm,
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+    marginBottom: theme.spacing.xs,
+  },
+  removeImageText: {
+    color: theme.colors.danger,
+    fontWeight: '700',
   },
   lockCard: {
     borderRadius: theme.radius.lg,

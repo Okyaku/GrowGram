@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
-import { SafeAreaView, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../../theme';
 
 type Props = {

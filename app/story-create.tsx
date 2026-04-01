@@ -3,15 +3,29 @@ import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { generateClient } from 'aws-amplify/api';
+import { uploadData } from 'aws-amplify/storage';
 import { CustomButton, InputField, ScreenContainer } from '../src/components/common';
 import { useRoadmap } from '../src/store/roadmap-context';
 import { theme } from '../src/theme';
 
+const createStoryMutation = /* GraphQL */ `
+  mutation CreateStory($input: CreateStoryInput!) {
+    createStory(input: $input) {
+      id
+      imageKey
+      caption
+    }
+  }
+`;
+
 export default function StoryCreateScreen() {
   const router = useRouter();
+  const client = React.useMemo(() => generateClient(), []);
   const { recordDailyActivity } = useRoadmap();
   const [imageUri, setImageUri] = React.useState<string | null>(null);
   const [caption, setCaption] = React.useState('');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const onPickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -31,19 +45,64 @@ export default function StoryCreateScreen() {
     }
   };
 
-  const onSubmit = () => {
+  const uploadStoryImage = React.useCallback(async (uri: string) => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const ext = uri.split('.').pop()?.toLowerCase();
+    const safeExt = ext && ext.length <= 5 ? ext : 'jpg';
+    const key = `public/stories/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
+
+    await uploadData({
+      path: key,
+      data: blob,
+      options: {
+        contentType: blob.type || `image/${safeExt}`,
+      },
+    }).result;
+
+    return key;
+  }, []);
+
+  const onSubmit = async () => {
     if (!imageUri) {
       Alert.alert('画像を選択してください', 'ストーリー投稿には画像が必要です。');
       return;
     }
 
-    recordDailyActivity('story');
-    Alert.alert('投稿完了', 'ストーリーを投稿しました。', [
-      {
-        text: 'OK',
-        onPress: () => router.back(),
-      },
-    ]);
+    try {
+      setIsSubmitting(true);
+      const imageKey = await uploadStoryImage(imageUri);
+      const response = await client.graphql({
+        query: createStoryMutation,
+        variables: {
+          input: {
+            imageKey,
+            caption: caption.trim() || undefined,
+          },
+        },
+      });
+
+      const storyId = (response as { data?: { createStory?: { id?: string } } }).data?.createStory?.id;
+      recordDailyActivity('story');
+
+      Alert.alert('投稿完了', 'ストーリーを投稿しました。', [
+        {
+          text: 'OK',
+          onPress: () => {
+            if (storyId) {
+              router.replace(`/story/${storyId}`);
+              return;
+            }
+            router.back();
+          },
+        },
+      ]);
+    } catch (error) {
+      console.error('[StoryCreate] failed to create story:', error);
+      Alert.alert('投稿失敗', 'ストーリーの投稿に失敗しました。時間をおいて再試行してください。');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -68,7 +127,7 @@ export default function StoryCreateScreen() {
         multiline
         style={styles.multiline}
       />
-      <CustomButton label='ストーリーを投稿' onPress={onSubmit} />
+      <CustomButton label='ストーリーを投稿' onPress={() => void onSubmit()} loading={isSubmitting} />
     </ScreenContainer>
   );
 }

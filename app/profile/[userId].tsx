@@ -1,21 +1,163 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { generateClient } from 'aws-amplify/api';
+import { getUrl } from 'aws-amplify/storage';
 import { ScreenContainer } from '../../src/components/common';
 import { theme } from '../../src/theme';
 
+type CloudProfile = {
+  id: string;
+  owner?: string | null;
+  username?: string | null;
+  bio?: string | null;
+  iconImageKey?: string | null;
+};
+
+type CloudPost = {
+  id: string;
+  content: string;
+  owner?: string | null;
+  title?: string | null;
+  imageKey?: string | null;
+  isArchived?: boolean | null;
+};
+
+type RenderPost = {
+  id: string;
+  title: string;
+  content: string;
+  image: string;
+};
+
+const getProfileQuery = /* GraphQL */ `
+  query GetProfile($id: ID!) {
+    getProfile(id: $id) {
+      id
+      owner
+      username
+      bio
+      iconImageKey
+    }
+  }
+`;
+
+const listPostsQuery = /* GraphQL */ `
+  query ListPosts {
+    listPosts(limit: 200) {
+      items {
+        id
+        content
+        owner
+        title
+        imageKey
+        isArchived
+      }
+    }
+  }
+`;
+
 export default function ProfileDetailScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
-  const postCount = 4;
+  const client = React.useMemo(() => generateClient(), []);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [profile, setProfile] = React.useState<CloudProfile | null>(null);
+  const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
+  const [posts, setPosts] = React.useState<RenderPost[]>([]);
+
+  React.useEffect(() => {
+    if (!userId) {
+      setIsLoading(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        setIsLoading(true);
+
+        let loadedProfile: CloudProfile | null = null;
+        try {
+          const profileResponse = await client.graphql({ query: getProfileQuery, variables: { id: userId } });
+          loadedProfile = (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
+        } catch {
+          loadedProfile = null;
+        }
+        setProfile(loadedProfile);
+
+        if (loadedProfile?.iconImageKey) {
+          try {
+            const resolved = await getUrl({ path: loadedProfile.iconImageKey });
+            setAvatarUrl(resolved.url.toString());
+          } catch {
+            setAvatarUrl(null);
+          }
+        } else {
+          setAvatarUrl(null);
+        }
+
+        const postsResponse = await client.graphql({ query: listPostsQuery });
+        const postItems =
+          (postsResponse as { data?: { listPosts?: { items?: Array<CloudPost | null> } } }).data?.listPosts?.items ?? [];
+
+        const ownPosts = postItems
+          .filter((item): item is CloudPost => Boolean(item?.id && item.content))
+          .filter((item) => item.owner === userId)
+          .filter((item) => item.isArchived !== true);
+
+        const renderPosts = await Promise.all(
+          ownPosts.map(async (item) => {
+            let image = 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000';
+            if (item.imageKey) {
+              try {
+                const resolved = await getUrl({ path: item.imageKey });
+                image = resolved.url.toString();
+              } catch {
+                image = 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000';
+              }
+            }
+            return {
+              id: item.id,
+              title: item.title ?? 'POST',
+              content: item.content,
+              image,
+            } satisfies RenderPost;
+          })
+        );
+
+        setPosts(renderPosts);
+      } catch (error) {
+        console.error('[ProfileDetail] failed to load data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [client, userId]);
+
+  const postCount = posts.length;
+  const displayName = profile?.username || `ユーザー ${userId}`;
+  const displayBio = profile?.bio || '毎日コツコツ積み上げるのが目標です。開発と学習を継続中。';
+
+  if (isLoading) {
+    return (
+      <ScreenContainer backgroundColor={theme.colors.surface}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={styles.loadingText}>プロフィールを読み込み中...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <Text style={styles.pageTitle}>プロフィール</Text>
       <View style={styles.headerCard}>
-        <View style={styles.avatarWrap}><View style={styles.avatar} /></View>
-        <Text style={styles.name}>ユーザー {userId}</Text>
-        <Text style={styles.bio}>毎日コツコツ積み上げるのが目標です。開発と学習を継続中。</Text>
+        <View style={styles.avatarWrap}>
+          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatar} /> : <View style={styles.avatar} />}
+        </View>
+        <Text style={styles.name}>{displayName}</Text>
+        <Text style={styles.bio}>{displayBio}</Text>
         <View style={styles.followRow}>
           <View style={styles.followItem}><Text style={styles.followValue}>82</Text><Text style={styles.followLabel}>フォロー中</Text></View>
           <View style={styles.followItem}><Text style={styles.followValue}>124</Text><Text style={styles.followLabel}>フォロワー</Text></View>
@@ -29,15 +171,19 @@ export default function ProfileDetailScreen() {
       </View>
 
       <Text style={styles.section}>過去の投稿（{postCount}件）</Text>
-      {Array.from({ length: postCount }).map((_, i) => (
-        <View key={i} style={styles.postCard}>
-          <Image
-            source={{ uri: `https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000&sig=${i}` }}
-            style={styles.image}
-          />
-          <Text style={styles.postText}>DAY {40 + i}: TypeScript + React Native の学習ログ</Text>
+      {posts.length > 0 ? (
+        posts.map((post) => (
+          <View key={post.id} style={styles.postCard}>
+            <Image source={{ uri: post.image }} style={styles.image} />
+            <Text style={styles.postText}>{post.title}</Text>
+            <Text style={styles.postSubText}>{post.content}</Text>
+          </View>
+        ))
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>まだ投稿がありません。</Text>
         </View>
-      ))}
+      )}
     </ScreenContainer>
   );
 }
@@ -48,6 +194,16 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '900',
     marginBottom: theme.spacing.sm,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  loadingText: {
+    color: theme.colors.text,
+    fontWeight: '700',
   },
   headerCard: {
     backgroundColor: theme.colors.white,
@@ -147,5 +303,22 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontWeight: '600',
     marginTop: 8,
+  },
+  postSubText: {
+    color: theme.colors.textSub,
+    marginTop: 4,
+    lineHeight: 20,
+  },
+  emptyCard: {
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.lg,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: theme.colors.textSub,
+    fontWeight: '700',
   },
 });

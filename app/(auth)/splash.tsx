@@ -2,17 +2,31 @@ import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { getCurrentUser } from 'aws-amplify/auth';
 import { theme } from '../../src/theme';
 
 export default function SplashScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      router.replace('/(auth)/onboarding');
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        await getCurrentUser();
+        if (isMounted) {
+          router.replace('/(tabs)/home');
+        }
+      } catch {
+        if (isMounted) {
+          router.replace('/(auth)/onboarding');
+        }
+      }
     }, 1200);
 
-    return () => clearTimeout(timer);
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [router]);
 
   return (

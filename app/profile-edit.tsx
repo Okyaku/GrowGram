@@ -2,11 +2,165 @@ import React from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { generateClient } from 'aws-amplify/api';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { getUrl, uploadData } from 'aws-amplify/storage';
 import { CustomButton, InputField, ScreenContainer } from '../src/components/common';
 import { theme } from '../src/theme';
 
+type ProfileItem = {
+  id: string;
+  username: string;
+  bio?: string | null;
+  iconImageKey?: string | null;
+};
+
+const parseProfileBio = (bio: string) => {
+  const parts = bio.split(' / ').map((part) => part.trim());
+  let challenge = '';
+  let longTermGoal = '';
+  let age = '';
+
+  parts.forEach((part) => {
+    if (part.startsWith('挑戦:')) {
+      challenge = part.replace('挑戦:', '').trim();
+    }
+    if (part.startsWith('長期目標:')) {
+      longTermGoal = part.replace('長期目標:', '').trim();
+    }
+    if (part.startsWith('年齢:')) {
+      age = part.replace('年齢:', '').trim();
+    }
+  });
+
+  return { challenge, longTermGoal, age };
+};
+
+const getProfileQuery = /* GraphQL */ `
+  query GetProfile($id: ID!) {
+    getProfile(id: $id) {
+      id
+      username
+      bio
+      iconImageKey
+    }
+  }
+`;
+
+const createProfileMutation = /* GraphQL */ `
+  mutation CreateProfile($input: CreateProfileInput!) {
+    createProfile(input: $input) {
+      id
+      username
+      bio
+      iconImageKey
+    }
+  }
+`;
+
+const updateProfileMutation = /* GraphQL */ `
+  mutation UpdateProfile($input: UpdateProfileInput!) {
+    updateProfile(input: $input) {
+      id
+      username
+      bio
+      iconImageKey
+    }
+  }
+`;
+
 export default function ProfileEditScreen() {
+  const client = React.useMemo(() => generateClient(), []);
   const [avatar, setAvatar] = React.useState<string | null>(null);
+  const [username, setUsername] = React.useState('');
+  const [age, setAge] = React.useState('');
+  const [challenge, setChallenge] = React.useState('');
+  const [longTermGoal, setLongTermGoal] = React.useState('');
+  const [currentUserId, setCurrentUserId] = React.useState<string>('');
+  const [profileId, setProfileId] = React.useState<string | null>(null);
+  const [initialImageKey, setInitialImageKey] = React.useState<string | null>(null);
+  const [initialAvatarUrl, setInitialAvatarUrl] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const uploadAvatar = React.useCallback(async (uri: string) => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const ext = uri.split('.').pop()?.toLowerCase();
+    const safeExt = ext && ext.length <= 5 ? ext : 'jpg';
+    const key = `public/profiles/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
+
+    await uploadData({
+      path: key,
+      data: blob,
+      options: {
+        contentType: blob.type || `image/${safeExt}`,
+      },
+    }).result;
+
+    return key;
+  }, []);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadProfile = async () => {
+      try {
+        const authUser = await getCurrentUser();
+        const userId = authUser.userId;
+        if (!userId) {
+          return;
+        }
+
+        if (isMounted) {
+          setCurrentUserId(userId);
+        }
+
+        const response = await client.graphql({
+          query: getProfileQuery,
+          variables: { id: userId },
+        });
+        const profile = (response as { data?: { getProfile?: ProfileItem | null } }).data?.getProfile ?? null;
+
+        if (!profile || !isMounted) {
+          return;
+        }
+
+        setProfileId(profile.id);
+        setUsername(profile.username ?? '');
+        const bio = profile.bio ?? '';
+        const parsed = parseProfileBio(bio);
+        setChallenge(parsed.challenge);
+        setLongTermGoal(parsed.longTermGoal);
+        setAge(parsed.age);
+        setInitialImageKey(profile.iconImageKey ?? null);
+
+        if (profile.iconImageKey) {
+          try {
+            const resolved = await getUrl({ path: profile.iconImageKey });
+            if (isMounted) {
+              setInitialAvatarUrl(resolved.url.toString());
+            }
+          } catch {
+            if (isMounted) {
+              setInitialAvatarUrl(null);
+            }
+          }
+        } else if (isMounted) {
+          setInitialAvatarUrl(null);
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.log('[ProfileEdit] failed to fetch profile:', error);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [client]);
 
   const pickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -27,6 +181,82 @@ export default function ProfileEditScreen() {
     }
   };
 
+  const onSave = React.useCallback(async () => {
+    if (!username.trim()) {
+      Alert.alert('入力不足', '氏名またはニックネームを入力してください。');
+      return;
+    }
+
+    if (!currentUserId) {
+      Alert.alert('認証エラー', 'ユーザー情報を取得できません。再ログイン後にお試しください。');
+      return;
+    }
+
+    const bioParts = [
+      challenge.trim() ? `挑戦: ${challenge.trim()}` : '',
+      longTermGoal.trim() ? `長期目標: ${longTermGoal.trim()}` : '',
+      age.trim() ? `年齢: ${age.trim()}` : '',
+    ].filter(Boolean);
+    const composedBio = bioParts.join(' / ') || undefined;
+
+    try {
+      setIsSubmitting(true);
+
+      let iconImageKey = initialImageKey ?? undefined;
+      if (avatar) {
+        iconImageKey = await uploadAvatar(avatar);
+      }
+
+      if (profileId) {
+        await client.graphql({
+          query: updateProfileMutation,
+          variables: {
+            input: {
+              id: profileId,
+              username: username.trim(),
+              bio: composedBio,
+              iconImageKey,
+            },
+          },
+        });
+      } else {
+        const response = await client.graphql({
+          query: createProfileMutation,
+          variables: {
+            input: {
+              id: currentUserId,
+              username: username.trim(),
+              bio: composedBio,
+              iconImageKey,
+            },
+          },
+        });
+
+        const createdId = (response as { data?: { createProfile?: { id?: string } } }).data?.createProfile?.id;
+        if (createdId) {
+          setProfileId(createdId);
+        }
+      }
+
+      if (iconImageKey) {
+        setInitialImageKey(iconImageKey);
+        try {
+          const resolved = await getUrl({ path: iconImageKey });
+          setInitialAvatarUrl(resolved.url.toString());
+        } catch {
+          setInitialAvatarUrl(null);
+        }
+      }
+
+      Alert.alert('保存しました', 'プロフィール情報を更新しました。');
+    } catch (error) {
+      console.error('[ProfileEdit] failed to save profile:', error);
+      Alert.alert('保存失敗', 'プロフィールの保存に失敗しました。時間をおいて再試行してください。');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [age, avatar, challenge, currentUserId, initialImageKey, longTermGoal, profileId, uploadAvatar, username]);
+
   return (
     <ScreenContainer>
       <View style={styles.headerRow}>
@@ -37,19 +267,40 @@ export default function ProfileEditScreen() {
 
       <View style={styles.avatarWrap}>
         <Pressable style={styles.avatarButton} onPress={pickAvatar}>
-          {avatar ? <Image source={{ uri: avatar }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder} />}
+          {avatar || initialAvatarUrl ? <Image source={{ uri: avatar ?? initialAvatarUrl ?? undefined }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder} />}
         </Pressable>
         <Pressable style={styles.editBadge}><Ionicons name='create' size={14} color={theme.colors.onPrimary} /></Pressable>
         <Text style={styles.helper}>写真をアップロード</Text>
         <Text style={styles.helperSub}>自分を表現する写真を選びましょう</Text>
       </View>
 
-      <InputField label='氏名またはニックネーム' placeholder='例: 田中 太郎' />
-      <InputField label='年齢' placeholder='選択してください' keyboardType='number-pad' />
-      <InputField label='現在挑戦していること' placeholder='例: 毎朝5時起き、毎日1時間の読書など' />
-      <InputField label='長期的な目標' placeholder='例: 1年後にフルマラソン完走、資格取得' />
+      <InputField
+        label='氏名またはニックネーム'
+        placeholder='例: 田中 太郎'
+        value={username}
+        onChangeText={setUsername}
+      />
+      <InputField
+        label='年齢'
+        placeholder='選択してください'
+        keyboardType='number-pad'
+        value={age}
+        onChangeText={setAge}
+      />
+      <InputField
+        label='現在挑戦していること'
+        placeholder='例: 毎朝5時起き、毎日1時間の読書など'
+        value={challenge}
+        onChangeText={setChallenge}
+      />
+      <InputField
+        label='長期的な目標'
+        placeholder='例: 1年後にフルマラソン完走、資格取得'
+        value={longTermGoal}
+        onChangeText={setLongTermGoal}
+      />
 
-      <CustomButton label='プロフィールを保存して次へ' onPress={() => Alert.alert('保存しました', 'プロフィール情報を更新しました。')} />
+      <CustomButton label='プロフィールを保存して次へ' onPress={() => void onSave()} loading={isSubmitting} />
 
       <View style={styles.progressRow}>
         <View style={styles.progressOff} />

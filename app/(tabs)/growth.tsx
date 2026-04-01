@@ -2,9 +2,41 @@ import React from 'react';
 import { Alert, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { ScreenContainer } from '../../src/components/common';
+import { generateClient } from 'aws-amplify/api';
+import { CustomButton, InputField, ScreenContainer } from '../../src/components/common';
 import { useRoadmap } from '../../src/store/roadmap-context';
 import { theme } from '../../src/theme';
+
+type GoalItem = {
+  id: string;
+  title: string;
+  deadline?: string | null;
+  isCompleted: boolean;
+};
+
+const listGoalsQuery = /* GraphQL */ `
+  query ListGoals {
+    listGoals(limit: 50) {
+      items {
+        id
+        title
+        deadline
+        isCompleted
+      }
+    }
+  }
+`;
+
+const createGoalMutation = /* GraphQL */ `
+  mutation CreateGoal($input: CreateGoalInput!) {
+    createGoal(input: $input) {
+      id
+      title
+      deadline
+      isCompleted
+    }
+  }
+`;
 
 const skills = [
   { label: '情熱 (Passion)', value: 85 },
@@ -14,7 +46,12 @@ const skills = [
 
 export default function GrowthScreen() {
   const router = useRouter();
+  const client = React.useMemo(() => generateClient(), []);
   const { activeRoadmap, streakDays, level, totalScore, activityByDate } = useRoadmap();
+  const [goals, setGoals] = React.useState<GoalItem[]>([]);
+  const [goalTitle, setGoalTitle] = React.useState('');
+  const [goalDeadline, setGoalDeadline] = React.useState('');
+  const [isSavingGoal, setIsSavingGoal] = React.useState(false);
 
   const badges = React.useMemo(
     () => [
@@ -69,6 +106,72 @@ export default function GrowthScreen() {
     });
   }, [activityByDate]);
 
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadGoals = async () => {
+      try {
+        const response = await client.graphql({ query: listGoalsQuery });
+        const items =
+          (response as { data?: { listGoals?: { items?: Array<GoalItem | null> } } }).data?.listGoals?.items ?? [];
+        const normalized = items
+          .filter((item): item is GoalItem => Boolean(item?.id && item.title))
+          .sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted));
+
+        if (isMounted) {
+          setGoals(normalized);
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.log('[Growth] failed to fetch goals:', error);
+        }
+      }
+    };
+
+    void loadGoals();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const onCreateGoal = React.useCallback(async () => {
+    const title = goalTitle.trim();
+    if (!title) {
+      Alert.alert('入力不足', '目標タイトルを入力してください。');
+      return;
+    }
+
+    try {
+      setIsSavingGoal(true);
+      const response = await client.graphql({
+        query: createGoalMutation,
+        variables: {
+          input: {
+            title,
+            deadline: goalDeadline.trim() || undefined,
+            isCompleted: false,
+          },
+        },
+      });
+
+      const created = (response as { data?: { createGoal?: GoalItem } }).data?.createGoal;
+      if (!created?.id) {
+        Alert.alert('作成失敗', '目標の作成に失敗しました。');
+        return;
+      }
+
+      setGoals((prev) => [created, ...prev]);
+      setGoalTitle('');
+      setGoalDeadline('');
+    } catch (error) {
+      console.error('[Growth] failed to create goal:', error);
+      Alert.alert('作成失敗', '目標の作成に失敗しました。時間をおいて再試行してください。');
+    } finally {
+      setIsSavingGoal(false);
+    }
+  }, [goalDeadline, goalTitle]);
+
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <View {...panResponder.panHandlers}>
@@ -83,6 +186,38 @@ export default function GrowthScreen() {
             <Text style={styles.objectiveDate}>現在スコア: {totalScore.toLocaleString()} pts</Text>
           </View>
           <View style={styles.objectiveIcon}><Ionicons name='code-slash' size={20} color={theme.colors.onPrimary} /></View>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.section}>目標（Goal）</Text>
+        <InputField
+          label='目標タイトル'
+          placeholder='例: 3ヶ月でポートフォリオ完成'
+          value={goalTitle}
+          onChangeText={setGoalTitle}
+        />
+        <InputField
+          label='期限（YYYY-MM-DD）'
+          placeholder='例: 2026-06-30'
+          value={goalDeadline}
+          onChangeText={setGoalDeadline}
+        />
+        <CustomButton label='目標を追加' onPress={() => void onCreateGoal()} loading={isSavingGoal} />
+
+        <View style={styles.goalList}>
+          {goals.length === 0 ? <Text style={styles.goalEmpty}>まだ目標はありません</Text> : null}
+          {goals.map((goal) => (
+            <View key={goal.id} style={styles.goalItem}>
+              <View style={styles.goalHeader}>
+                <Text style={styles.goalTitle}>{goal.title}</Text>
+                <Text style={[styles.goalBadge, goal.isCompleted && styles.goalBadgeDone]}>
+                  {goal.isCompleted ? '達成' : '進行中'}
+                </Text>
+              </View>
+              <Text style={styles.goalDeadline}>期限: {goal.deadline || '未設定'}</Text>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -317,5 +452,44 @@ const styles = StyleSheet.create({
   },
   badgeTextMuted: {
     color: theme.colors.textSub,
+  },
+  goalList: {
+    marginTop: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  goalEmpty: {
+    color: theme.colors.textSub,
+    fontWeight: '700',
+  },
+  goalItem: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.sm,
+  },
+  goalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  goalTitle: {
+    color: theme.colors.text,
+    fontWeight: '800',
+    flex: 1,
+  },
+  goalBadge: {
+    color: theme.colors.primary,
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  goalBadgeDone: {
+    color: theme.colors.success,
+  },
+  goalDeadline: {
+    color: theme.colors.textSub,
+    marginTop: 4,
+    fontSize: 12,
   },
 });

@@ -1,0 +1,26 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-growgram-dev-d2f3e-authRole",
+      "UnauthRoleArn": "arn:aws:iam::558147954680:role/amplify-growgram-dev-d2f3e-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::558147954680:role/amplify-growgram-dev-d2f3e-authRole",
+      "Region": "ap-northeast-1",
+      "DeploymentBucketName": "amplify-growgram-dev-d2f3e-deployment",
+      "UnauthRoleName": "amplify-growgram-dev-d2f3e-unauthRole",
+      "StackName": "amplify-growgram-dev-d2f3e",
+      "StackId": "arn:aws:cloudformation:ap-northeast-1:558147954680:stack/amplify-growgram-dev-d2f3e/e2819680-2a80-11f1-ad08-06143fa6e26b",
+      "AmplifyAppId": "d2j0h7rji4pqul"
+    },
+    "categories": {
+      "auth": {
+        "growgrame54d0647": {}
+      },
+      "api": {
+        "growgram": {}
+      },
+      "storage": {
+        "postImages": {}
+      }
+    }
+  }
+}
