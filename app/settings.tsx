@@ -1,16 +1,28 @@
-import React from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { signOut } from 'aws-amplify/auth';
-import { ScreenContainer } from '../src/components/common';
-import { useRoadmap } from '../src/store/roadmap-context';
-import { theme } from '../src/theme';
+import React from "react";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { signOut } from "aws-amplify/auth";
+import { ScreenContainer } from "../src/components/common";
+import { useRoadmap } from "../src/store/roadmap-context";
+import { theme } from "../src/theme";
 
 const settingMenus = [
-  { label: '通知', route: '/notifications' as const, icon: 'notifications' as const },
-  { label: '利用規約', route: '/legal' as const, icon: 'document-text' as const },
-  { label: 'プライバシーポリシー', route: '/legal' as const, icon: 'shield-checkmark' as const },
+  {
+    label: "通知",
+    route: "/notifications" as const,
+    icon: "notifications" as const,
+  },
+  {
+    label: "利用規約",
+    route: "/legal" as const,
+    icon: "document-text" as const,
+  },
+  {
+    label: "プライバシーポリシー",
+    route: "/legal" as const,
+    icon: "shield-checkmark" as const,
+  },
 ];
 
 export default function SettingsScreen() {
@@ -24,16 +36,29 @@ export default function SettingsScreen() {
       // Ignore auth provider errors and always clear local app state.
     } finally {
       logout({ clearProgress: true });
-      router.replace('/(auth)/login');
+      router.replace("/(auth)/login");
     }
   }, [logout, router]);
 
   const onDeleteAccount = () => {
-    Alert.alert('アカウント退会', 'この操作は取り消せません。退会しますか？', [
-      { text: 'キャンセル', style: 'cancel' },
+    Alert.alert("アカウント退会", "この操作は取り消せません。退会しますか？", [
+      { text: "キャンセル", style: "cancel" },
       {
-        text: '退会する',
-        style: 'destructive',
+        text: "退会する",
+        style: "destructive",
+        onPress: () => {
+          void handleSignOut();
+        },
+      },
+    ]);
+  };
+
+  const onLogout = () => {
+    Alert.alert("ログアウト", "ログアウトしますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "ログアウト",
+        style: "destructive",
         onPress: () => {
           void handleSignOut();
         },
@@ -45,7 +70,7 @@ export default function SettingsScreen() {
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.iconButton}>
-          <Ionicons name='chevron-back' size={20} color={theme.colors.text} />
+          <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.title}>設定</Text>
         <View style={styles.iconButton} />
@@ -53,16 +78,41 @@ export default function SettingsScreen() {
 
       <View style={styles.card}>
         {settingMenus.map((menu) => (
-          <Pressable key={menu.label} style={styles.menuItem} onPress={() => router.push(menu.route)}>
+          <Pressable
+            key={menu.label}
+            style={styles.menuItem}
+            onPress={() => router.push(menu.route)}
+          >
             <View style={styles.menuLeft}>
-              <Ionicons name={menu.icon} size={18} color={theme.colors.primary} />
+              <Ionicons
+                name={menu.icon}
+                size={18}
+                color={theme.colors.primary}
+              />
               <Text style={styles.menuText}>{menu.label}</Text>
             </View>
-            <Ionicons name='chevron-forward' size={18} color={theme.colors.textSub} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={theme.colors.textSub}
+            />
           </Pressable>
         ))}
       </View>
-
+      <Pressable
+        style={[styles.menuItem, styles.logoutItem]}
+        onPress={onLogout}
+      >
+        <View style={styles.menuLeft}>
+          <Ionicons name="log-out" size={18} color={theme.colors.danger} />
+          <Text style={styles.logoutText}>ログアウト</Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={18}
+          color={theme.colors.textSub}
+        />
+      </Pressable>
       <View style={styles.bottomArea}>
         <Pressable onPress={onDeleteAccount} hitSlop={12}>
           <Text style={styles.deleteLink}>アカウント退会</Text>
@@ -74,23 +124,23 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: theme.spacing.md,
   },
   iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: theme.colors.white,
   },
   title: {
     color: theme.colors.text,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   card: {
     borderRadius: theme.radius.lg,
@@ -104,28 +154,35 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   menuLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: theme.spacing.sm,
   },
   menuText: {
     color: theme.colors.text,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   bottomArea: {
-    marginTop: 'auto',
-    alignItems: 'center',
+    marginTop: "auto",
+    alignItems: "center",
     paddingVertical: theme.spacing.md,
   },
   deleteLink: {
     color: theme.colors.textSub,
     fontSize: 12,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
+  logoutItem: {
+    borderColor: theme.colors.danger,
+  },
+  logoutText: {
+    color: theme.colors.danger,
+    fontWeight: "800",
   },
 });

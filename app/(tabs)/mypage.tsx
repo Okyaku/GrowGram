@@ -12,11 +12,6 @@ import { useRoadmap } from "../../src/store/roadmap-context";
 import { theme } from "../../src/theme";
 
 const menus = [
-  {
-    label: "プロフィール編集",
-    route: "/profile-edit" as const,
-    icon: "person-circle" as const,
-  },
   { label: "設定", route: "/settings" as const, icon: "settings" as const },
 ];
 
@@ -125,19 +120,6 @@ export default function MyPageScreen() {
     }
   }, [logout, router]);
 
-  const onLogout = () => {
-    Alert.alert("ログアウト", "ログアウトしますか？", [
-      { text: "キャンセル", style: "cancel" },
-      {
-        text: "ログアウト",
-        style: "destructive",
-        onPress: () => {
-          void handleSignOut();
-        },
-      },
-    ]);
-  };
-
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <Text style={styles.pageTitle}>マイページ</Text>
@@ -187,21 +169,6 @@ export default function MyPageScreen() {
           />
         </Pressable>
       ))}
-
-      <Pressable
-        style={[styles.menuItem, styles.logoutItem]}
-        onPress={onLogout}
-      >
-        <View style={styles.menuLeft}>
-          <Ionicons name="log-out" size={18} color={theme.colors.danger} />
-          <Text style={styles.logoutText}>ログアウト</Text>
-        </View>
-        <Ionicons
-          name="chevron-forward"
-          size={18}
-          color={theme.colors.textSub}
-        />
-      </Pressable>
     </ScreenContainer>
   );
 }
@@ -287,12 +254,5 @@ const styles = StyleSheet.create({
   menuText: {
     color: theme.colors.text,
     fontWeight: "700",
-  },
-  logoutItem: {
-    borderColor: theme.colors.danger,
-  },
-  logoutText: {
-    color: theme.colors.danger,
-    fontWeight: "800",
   },
 });
