@@ -1,11 +1,15 @@
-import React from 'react';
-import { Alert, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { generateClient } from 'aws-amplify/api';
-import { CustomButton, InputField, ScreenContainer } from '../../src/components/common';
-import { useRoadmap } from '../../src/store/roadmap-context';
-import { theme } from '../../src/theme';
+import React from "react";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { generateClient } from "aws-amplify/api";
+import {
+  CustomButton,
+  InputField,
+  ScreenContainer,
+} from "../../src/components/common";
+import { useRoadmap } from "../../src/store/roadmap-context";
+import { theme } from "../../src/theme";
 
 type GoalItem = {
   id: string;
@@ -39,58 +43,47 @@ const createGoalMutation = /* GraphQL */ `
 `;
 
 const skills = [
-  { label: '情熱 (Passion)', value: 85 },
-  { label: '論理 (Logic)', value: 42 },
-  { label: '継続 (Consistency)', value: 92 },
+  { label: "情熱 (Passion)", value: 85 },
+  { label: "論理 (Logic)", value: 42 },
+  { label: "継続 (Consistency)", value: 92 },
 ];
 
 export default function GrowthScreen() {
   const router = useRouter();
   const client = React.useMemo(() => generateClient(), []);
-  const { activeRoadmap, streakDays, level, totalScore, activityByDate } = useRoadmap();
+  const { activeRoadmap, streakDays, level, totalScore, activityByDate } =
+    useRoadmap();
   const [goals, setGoals] = React.useState<GoalItem[]>([]);
-  const [goalTitle, setGoalTitle] = React.useState('');
-  const [goalDeadline, setGoalDeadline] = React.useState('');
+  const [goalTitle, setGoalTitle] = React.useState("");
+  const [goalDeadline, setGoalDeadline] = React.useState("");
   const [isSavingGoal, setIsSavingGoal] = React.useState(false);
 
   const badges = React.useMemo(
     () => [
       {
-        id: 'b1',
-        icon: 'flame',
+        id: "b1",
+        icon: "flame",
         title: `${streakDays}日連続`,
-        description: '1日1回以上の行動を連続で記録した証です。',
+        description: "1日1回以上の行動を連続で記録した証です。",
         unlocked: streakDays >= 3,
       },
       {
-        id: 'b2',
-        icon: 'diamond',
-        title: '情熱の塊',
-        description: 'ストーリー投稿と達成投稿を合計5回以上行うと解放されます。',
+        id: "b2",
+        icon: "diamond",
+        title: "情熱の塊",
+        description:
+          "ストーリー投稿と達成投稿を合計5回以上行うと解放されます。",
         unlocked: totalScore >= 13000,
       },
       {
-        id: 'b3',
-        icon: 'trophy',
-        title: '月間リーダー',
-        description: 'レベル20到達で解放される上位バッジです。',
+        id: "b3",
+        icon: "trophy",
+        title: "月間リーダー",
+        description: "レベル20到達で解放される上位バッジです。",
         unlocked: level >= 20,
       },
     ],
-    [level, streakDays, totalScore]
-  );
-
-  const panResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 30 && Math.abs(gestureState.dy) < 16,
-        onPanResponderRelease: (_, gestureState) => {
-          if (Math.abs(gestureState.dx) > 60) {
-            router.push('/(tabs)/analysis');
-          }
-        },
-      }),
-    [router]
+    [level, streakDays, totalScore],
   );
 
   const days = React.useMemo(() => {
@@ -113,7 +106,11 @@ export default function GrowthScreen() {
       try {
         const response = await client.graphql({ query: listGoalsQuery });
         const items =
-          (response as { data?: { listGoals?: { items?: Array<GoalItem | null> } } }).data?.listGoals?.items ?? [];
+          (
+            response as {
+              data?: { listGoals?: { items?: Array<GoalItem | null> } };
+            }
+          ).data?.listGoals?.items ?? [];
         const normalized = items
           .filter((item): item is GoalItem => Boolean(item?.id && item.title))
           .sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted));
@@ -123,7 +120,7 @@ export default function GrowthScreen() {
         }
       } catch (error) {
         if (__DEV__) {
-          console.log('[Growth] failed to fetch goals:', error);
+          console.log("[Growth] failed to fetch goals:", error);
         }
       }
     };
@@ -138,7 +135,7 @@ export default function GrowthScreen() {
   const onCreateGoal = React.useCallback(async () => {
     const title = goalTitle.trim();
     if (!title) {
-      Alert.alert('入力不足', '目標タイトルを入力してください。');
+      Alert.alert("入力不足", "目標タイトルを入力してください。");
       return;
     }
 
@@ -155,18 +152,22 @@ export default function GrowthScreen() {
         },
       });
 
-      const created = (response as { data?: { createGoal?: GoalItem } }).data?.createGoal;
+      const created = (response as { data?: { createGoal?: GoalItem } }).data
+        ?.createGoal;
       if (!created?.id) {
-        Alert.alert('作成失敗', '目標の作成に失敗しました。');
+        Alert.alert("作成失敗", "目標の作成に失敗しました。");
         return;
       }
 
       setGoals((prev) => [created, ...prev]);
-      setGoalTitle('');
-      setGoalDeadline('');
+      setGoalTitle("");
+      setGoalDeadline("");
     } catch (error) {
-      console.error('[Growth] failed to create goal:', error);
-      Alert.alert('作成失敗', '目標の作成に失敗しました。時間をおいて再試行してください。');
+      console.error("[Growth] failed to create goal:", error);
+      Alert.alert(
+        "作成失敗",
+        "目標の作成に失敗しました。時間をおいて再試行してください。",
+      );
     } finally {
       setIsSavingGoal(false);
     }
@@ -174,53 +175,26 @@ export default function GrowthScreen() {
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
-      <View {...panResponder.panHandlers}>
       <Text style={styles.title}>成長ログ</Text>
-      <Text style={styles.swipeHint}>右スクロールで次の画面へ</Text>
 
       <View style={styles.objectiveCard}>
         <Text style={styles.objectiveLabel}>PEAK OBJECTIVE</Text>
         <View style={styles.rowBetween}>
           <View>
             <Text style={styles.objectiveTitle}>{activeRoadmap.goal}</Text>
-            <Text style={styles.objectiveDate}>現在スコア: {totalScore.toLocaleString()} pts</Text>
+            <Text style={styles.objectiveDate}>
+              現在スコア: {totalScore.toLocaleString()} pts
+            </Text>
           </View>
-          <View style={styles.objectiveIcon}><Ionicons name='code-slash' size={20} color={theme.colors.onPrimary} /></View>
+          <View style={styles.objectiveIcon}>
+            <Ionicons
+              name="code-slash"
+              size={20}
+              color={theme.colors.onPrimary}
+            />
+          </View>
         </View>
       </View>
-
-      <View style={styles.card}>
-        <Text style={styles.section}>目標（Goal）</Text>
-        <InputField
-          label='目標タイトル'
-          placeholder='例: 3ヶ月でポートフォリオ完成'
-          value={goalTitle}
-          onChangeText={setGoalTitle}
-        />
-        <InputField
-          label='期限（YYYY-MM-DD）'
-          placeholder='例: 2026-06-30'
-          value={goalDeadline}
-          onChangeText={setGoalDeadline}
-        />
-        <CustomButton label='目標を追加' onPress={() => void onCreateGoal()} loading={isSavingGoal} />
-
-        <View style={styles.goalList}>
-          {goals.length === 0 ? <Text style={styles.goalEmpty}>まだ目標はありません</Text> : null}
-          {goals.map((goal) => (
-            <View key={goal.id} style={styles.goalItem}>
-              <View style={styles.goalHeader}>
-                <Text style={styles.goalTitle}>{goal.title}</Text>
-                <Text style={[styles.goalBadge, goal.isCompleted && styles.goalBadgeDone]}>
-                  {goal.isCompleted ? '達成' : '進行中'}
-                </Text>
-              </View>
-              <Text style={styles.goalDeadline}>期限: {goal.deadline || '未設定'}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
       <View style={styles.card}>
         <View style={styles.rowBetween}>
           <Text style={styles.section}>スキルバランス</Text>
@@ -256,9 +230,18 @@ export default function GrowthScreen() {
         ))}
       </View>
       <View style={styles.legendRow}>
-        <View style={styles.legendItem}><View style={[styles.legendDot, styles.level1]} /><Text style={styles.legendText}>行動した</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, styles.level2]} /><Text style={styles.legendText}>ストーリー投稿</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, styles.level3]} /><Text style={styles.legendText}>達成投稿</Text></View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.level1]} />
+          <Text style={styles.legendText}>行動した</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.level2]} />
+          <Text style={styles.legendText}>ストーリー投稿</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.level3]} />
+          <Text style={styles.legendText}>達成投稿</Text>
+        </View>
       </View>
 
       <Text style={styles.sectionLarge}>獲得バッジ</Text>
@@ -270,19 +253,27 @@ export default function GrowthScreen() {
             onPress={() =>
               Alert.alert(
                 badge.title,
-                `${badge.description}\n\n状態: ${badge.unlocked ? '解放済み' : '未解放'}`
+                `${badge.description}\n\n状態: ${badge.unlocked ? "解放済み" : "未解放"}`,
               )
             }
           >
             <Ionicons
-              name={badge.icon as React.ComponentProps<typeof Ionicons>['name']}
+              name={badge.icon as React.ComponentProps<typeof Ionicons>["name"]}
               size={22}
-              color={badge.unlocked ? theme.colors.primary : theme.colors.textSub}
+              color={
+                badge.unlocked ? theme.colors.primary : theme.colors.textSub
+              }
             />
-            <Text style={[styles.badgeText, !badge.unlocked && styles.badgeTextMuted]}>{badge.title}</Text>
+            <Text
+              style={[
+                styles.badgeText,
+                !badge.unlocked && styles.badgeTextMuted,
+              ]}
+            >
+              {badge.title}
+            </Text>
           </Pressable>
         ))}
-      </View>
       </View>
     </ScreenContainer>
   );
@@ -292,14 +283,14 @@ const styles = StyleSheet.create({
   title: {
     color: theme.colors.text,
     fontSize: 28,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 0.3,
     marginBottom: 4,
   },
   swipeHint: {
     color: theme.colors.textSub,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: theme.spacing.md,
   },
   objectiveCard: {
@@ -313,7 +304,7 @@ const styles = StyleSheet.create({
   },
   objectiveLabel: {
     color: theme.colors.primary,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 1,
     fontSize: 12,
     marginBottom: theme.spacing.xs,
@@ -321,20 +312,20 @@ const styles = StyleSheet.create({
   objectiveTitle: {
     color: theme.colors.text,
     fontSize: 30,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   objectiveDate: {
     color: theme.colors.textSub,
     marginTop: 2,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   objectiveIcon: {
     width: 52,
     height: 52,
     borderRadius: 26,
     backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   card: {
     borderRadius: theme.radius.lg,
@@ -345,37 +336,37 @@ const styles = StyleSheet.create({
     ...theme.shadows.soft,
   },
   rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   section: {
     color: theme.colors.text,
-    fontWeight: '800',
+    fontWeight: "800",
     fontSize: 26,
   },
   level: {
     color: theme.colors.primary,
-    fontWeight: '900',
+    fontWeight: "900",
     fontSize: 28,
   },
   skillLabel: {
     color: theme.colors.text,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   percent: {
     color: theme.colors.primary,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   track: {
     marginTop: 8,
     height: 14,
     borderRadius: 10,
     backgroundColor: theme.colors.border,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   bar: {
-    height: '100%',
+    height: "100%",
     backgroundColor: theme.colors.primary,
     borderRadius: 10,
   },
@@ -390,8 +381,8 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.white,
     padding: theme.spacing.md,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     ...theme.shadows.soft,
   },
@@ -405,14 +396,14 @@ const styles = StyleSheet.create({
   level2: { backgroundColor: theme.colors.primary },
   level3: { backgroundColor: theme.colors.success },
   legendRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
     marginTop: theme.spacing.sm,
   },
   legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   legendDot: {
@@ -423,10 +414,10 @@ const styles = StyleSheet.create({
   legendText: {
     color: theme.colors.textSub,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   badgeRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing.sm,
   },
   badge: {
@@ -436,7 +427,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     backgroundColor: theme.colors.white,
     paddingVertical: theme.spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
     ...theme.shadows.soft,
   },
   badgeMuted: {
@@ -446,8 +437,8 @@ const styles = StyleSheet.create({
   badgeText: {
     marginTop: 8,
     color: theme.colors.text,
-    fontWeight: '800',
-    textAlign: 'center',
+    fontWeight: "800",
+    textAlign: "center",
     fontSize: 12,
   },
   badgeTextMuted: {
@@ -459,7 +450,7 @@ const styles = StyleSheet.create({
   },
   goalEmpty: {
     color: theme.colors.textSub,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   goalItem: {
     borderWidth: 1,
@@ -469,19 +460,19 @@ const styles = StyleSheet.create({
     padding: theme.spacing.sm,
   },
   goalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: theme.spacing.sm,
   },
   goalTitle: {
     color: theme.colors.text,
-    fontWeight: '800',
+    fontWeight: "800",
     flex: 1,
   },
   goalBadge: {
     color: theme.colors.primary,
-    fontWeight: '800',
+    fontWeight: "800",
     fontSize: 12,
   },
   goalBadgeDone: {

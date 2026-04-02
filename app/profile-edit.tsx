@@ -1,12 +1,18 @@
-import React from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
-import { generateClient } from 'aws-amplify/api';
-import { getCurrentUser } from 'aws-amplify/auth';
-import { getUrl, uploadData } from 'aws-amplify/storage';
-import { CustomButton, InputField, ScreenContainer } from '../src/components/common';
-import { theme } from '../src/theme';
+import React from "react";
+import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { generateClient } from "aws-amplify/api";
+import { getCurrentUser } from "aws-amplify/auth";
+import { getUrl, uploadData } from "aws-amplify/storage";
+import {
+  CustomButton,
+  InputField,
+  ScreenContainer,
+} from "../src/components/common";
+import { theme } from "../src/theme";
+import { BackButton } from "../src/components/common/BackButton";
 
 type ProfileItem = {
   id: string;
@@ -16,24 +22,20 @@ type ProfileItem = {
 };
 
 const parseProfileBio = (bio: string) => {
-  const parts = bio.split(' / ').map((part) => part.trim());
-  let challenge = '';
-  let longTermGoal = '';
-  let age = '';
+  const parts = bio.split(" / ").map((part) => part.trim());
+  let challenge = "";
+  let longTermGoal = "";
 
   parts.forEach((part) => {
-    if (part.startsWith('挑戦:')) {
-      challenge = part.replace('挑戦:', '').trim();
+    if (part.startsWith("挑戦:")) {
+      challenge = part.replace("挑戦:", "").trim();
     }
-    if (part.startsWith('長期目標:')) {
-      longTermGoal = part.replace('長期目標:', '').trim();
-    }
-    if (part.startsWith('年齢:')) {
-      age = part.replace('年齢:', '').trim();
+    if (part.startsWith("長期目標:")) {
+      longTermGoal = part.replace("長期目標:", "").trim();
     }
   });
 
-  return { challenge, longTermGoal, age };
+  return { challenge, longTermGoal };
 };
 
 const getProfileQuery = /* GraphQL */ `
@@ -70,23 +72,27 @@ const updateProfileMutation = /* GraphQL */ `
 `;
 
 export default function ProfileEditScreen() {
+  const router = useRouter();
   const client = React.useMemo(() => generateClient(), []);
   const [avatar, setAvatar] = React.useState<string | null>(null);
-  const [username, setUsername] = React.useState('');
-  const [age, setAge] = React.useState('');
-  const [challenge, setChallenge] = React.useState('');
-  const [longTermGoal, setLongTermGoal] = React.useState('');
-  const [currentUserId, setCurrentUserId] = React.useState<string>('');
+  const [username, setUsername] = React.useState("");
+  const [challenge, setChallenge] = React.useState("");
+  const [longTermGoal, setLongTermGoal] = React.useState("");
+  const [currentUserId, setCurrentUserId] = React.useState<string>("");
   const [profileId, setProfileId] = React.useState<string | null>(null);
-  const [initialImageKey, setInitialImageKey] = React.useState<string | null>(null);
-  const [initialAvatarUrl, setInitialAvatarUrl] = React.useState<string | null>(null);
+  const [initialImageKey, setInitialImageKey] = React.useState<string | null>(
+    null,
+  );
+  const [initialAvatarUrl, setInitialAvatarUrl] = React.useState<string | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const uploadAvatar = React.useCallback(async (uri: string) => {
     const response = await fetch(uri);
     const blob = await response.blob();
-    const ext = uri.split('.').pop()?.toLowerCase();
-    const safeExt = ext && ext.length <= 5 ? ext : 'jpg';
+    const ext = uri.split(".").pop()?.toLowerCase();
+    const safeExt = ext && ext.length <= 5 ? ext : "jpg";
     const key = `public/profiles/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
 
     await uploadData({
@@ -119,19 +125,20 @@ export default function ProfileEditScreen() {
           query: getProfileQuery,
           variables: { id: userId },
         });
-        const profile = (response as { data?: { getProfile?: ProfileItem | null } }).data?.getProfile ?? null;
+        const profile =
+          (response as { data?: { getProfile?: ProfileItem | null } }).data
+            ?.getProfile ?? null;
 
         if (!profile || !isMounted) {
           return;
         }
 
         setProfileId(profile.id);
-        setUsername(profile.username ?? '');
-        const bio = profile.bio ?? '';
+        setUsername(profile.username ?? "");
+        const bio = profile.bio ?? "";
         const parsed = parseProfileBio(bio);
         setChallenge(parsed.challenge);
         setLongTermGoal(parsed.longTermGoal);
-        setAge(parsed.age);
         setInitialImageKey(profile.iconImageKey ?? null);
 
         if (profile.iconImageKey) {
@@ -150,7 +157,7 @@ export default function ProfileEditScreen() {
         }
       } catch (error) {
         if (__DEV__) {
-          console.log('[ProfileEdit] failed to fetch profile:', error);
+          console.log("[ProfileEdit] failed to fetch profile:", error);
         }
       }
     };
@@ -165,12 +172,15 @@ export default function ProfileEditScreen() {
   const pickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('権限が必要です', 'プロフィール画像を選択するには権限が必要です。');
+      Alert.alert(
+        "権限が必要です",
+        "プロフィール画像を選択するには権限が必要です。",
+      );
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ["images"],
       quality: 0.7,
       allowsEditing: true,
       aspect: [1, 1],
@@ -183,21 +193,23 @@ export default function ProfileEditScreen() {
 
   const onSave = React.useCallback(async () => {
     if (!username.trim()) {
-      Alert.alert('入力不足', '氏名またはニックネームを入力してください。');
+      Alert.alert("入力不足", "氏名またはニックネームを入力してください。");
       return;
     }
 
     if (!currentUserId) {
-      Alert.alert('認証エラー', 'ユーザー情報を取得できません。再ログイン後にお試しください。');
+      Alert.alert(
+        "認証エラー",
+        "ユーザー情報を取得できません。再ログイン後にお試しください。",
+      );
       return;
     }
 
     const bioParts = [
-      challenge.trim() ? `挑戦: ${challenge.trim()}` : '',
-      longTermGoal.trim() ? `長期目標: ${longTermGoal.trim()}` : '',
-      age.trim() ? `年齢: ${age.trim()}` : '',
+      challenge.trim() ? `挑戦: ${challenge.trim()}` : "",
+      longTermGoal.trim() ? `長期目標: ${longTermGoal.trim()}` : "",
     ].filter(Boolean);
-    const composedBio = bioParts.join(' / ') || undefined;
+    const composedBio = bioParts.join(" / ") || undefined;
 
     try {
       setIsSubmitting(true);
@@ -232,7 +244,9 @@ export default function ProfileEditScreen() {
           },
         });
 
-        const createdId = (response as { data?: { createProfile?: { id?: string } } }).data?.createProfile?.id;
+        const createdId = (
+          response as { data?: { createProfile?: { id?: string } } }
+        ).data?.createProfile?.id;
         if (createdId) {
           setProfileId(createdId);
         }
@@ -248,69 +262,77 @@ export default function ProfileEditScreen() {
         }
       }
 
-      Alert.alert('保存しました', 'プロフィール情報を更新しました。');
+      Alert.alert("保存しました", "プロフィール情報を更新しました。");
     } catch (error) {
-      console.error('[ProfileEdit] failed to save profile:', error);
-      Alert.alert('保存失敗', 'プロフィールの保存に失敗しました。時間をおいて再試行してください。');
+      console.error("[ProfileEdit] failed to save profile:", error);
+      Alert.alert(
+        "保存失敗",
+        "プロフィールの保存に失敗しました。時間をおいて再試行してください。",
+      );
     } finally {
       setIsSubmitting(false);
     }
-  }, [age, avatar, challenge, currentUserId, initialImageKey, longTermGoal, profileId, uploadAvatar, username]);
+  }, [
+    avatar,
+    challenge,
+    currentUserId,
+    initialImageKey,
+    longTermGoal,
+    profileId,
+    uploadAvatar,
+    username,
+  ]);
 
   return (
     <ScreenContainer>
-      <View style={styles.headerRow}>
-        <Pressable style={styles.backBtn}><Ionicons name='arrow-back' size={20} color={theme.colors.text} /></Pressable>
+      <BackButton>
         <Text style={styles.title}>プロフィール設定</Text>
-        <View style={styles.backBtnDummy} />
-      </View>
-
+      </BackButton>
       <View style={styles.avatarWrap}>
         <Pressable style={styles.avatarButton} onPress={pickAvatar}>
-          {avatar || initialAvatarUrl ? <Image source={{ uri: avatar ?? initialAvatarUrl ?? undefined }} style={styles.avatar} /> : <View style={styles.avatarPlaceholder} />}
+          {avatar || initialAvatarUrl ? (
+            <Image
+              source={{ uri: avatar ?? initialAvatarUrl ?? undefined }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder} />
+          )}
         </Pressable>
-        <Pressable style={styles.editBadge}><Ionicons name='create' size={14} color={theme.colors.onPrimary} /></Pressable>
+        <Pressable style={styles.editBadge}>
+          <Ionicons name="create" size={14} color={theme.colors.onPrimary} />
+        </Pressable>
         <Text style={styles.helper}>写真をアップロード</Text>
         <Text style={styles.helperSub}>自分を表現する写真を選びましょう</Text>
       </View>
 
       <InputField
-        label='氏名またはニックネーム'
-        placeholder='例: 田中 太郎'
+        label="氏名またはニックネーム"
+        placeholder="例: 田中 太郎"
         value={username}
         onChangeText={setUsername}
       />
       <InputField
-        label='年齢'
-        placeholder='選択してください'
-        keyboardType='number-pad'
-        value={age}
-        onChangeText={setAge}
-      />
-      <InputField
-        label='現在挑戦していること'
-        placeholder='例: 毎朝5時起き、毎日1時間の読書など'
-        value={challenge}
-        onChangeText={setChallenge}
-      />
-      <InputField
-        label='長期的な目標'
-        placeholder='例: 1年後にフルマラソン完走、資格取得'
+        label="長期的な目標"
+        placeholder="例: 1年後にフルマラソン完走、資格取得"
         value={longTermGoal}
         onChangeText={setLongTermGoal}
       />
 
-      <CustomButton label='プロフィールを保存して次へ' onPress={() => void onSave()} loading={isSubmitting} />
-
-      <View style={styles.progressRow}>
-        <View style={styles.progressOff} />
-        <View style={styles.progressOff} />
-        <View style={styles.progressOn} />
-      </View>
+      <CustomButton
+        label="プロフィールを保存して次へ"
+        onPress={() => {
+          void onSave();
+          router.back();
+        }}
+        loading={isSubmitting}
+      />
 
       <View style={styles.tipCard}>
         <Text style={styles.tipTitle}>GrowGram Tip:</Text>
-        <Text style={styles.tipText}>設定した目標はいつでも変更可能です。一歩ずつ、あなたの「積み上げ」を可視化していきましょう。</Text>
+        <Text style={styles.tipText}>
+          設定した目標はいつでも変更可能です。一歩ずつ、あなたの「積み上げ」を可視化していきましょう。
+        </Text>
       </View>
     </ScreenContainer>
   );
@@ -318,17 +340,17 @@ export default function ProfileEditScreen() {
 
 const styles = StyleSheet.create({
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: theme.spacing.md,
   },
   backBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: theme.colors.surface,
   },
   backBtnDummy: {
@@ -340,15 +362,15 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   avatarWrap: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: theme.spacing.md,
-    position: 'relative',
+    position: "relative",
   },
   avatarButton: {
     width: 140,
     height: 140,
     borderRadius: 70,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: theme.colors.primary,
     ...theme.shadows.soft,
@@ -361,34 +383,34 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   editBadge: {
-    position: 'absolute',
+    position: "absolute",
     right: 108,
     top: 102,
     width: 36,
     height: 36,
     borderRadius: 18,
     backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 2,
     borderColor: theme.colors.background,
   },
   helper: {
     marginTop: 10,
     color: theme.colors.text,
-    fontWeight: '900',
+    fontWeight: "900",
     fontSize: 34,
   },
   helperSub: {
     color: theme.colors.textSub,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 4,
     marginBottom: theme.spacing.sm,
   },
   progressRow: {
     marginTop: theme.spacing.md,
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 10,
   },
   progressOff: {
@@ -413,7 +435,7 @@ const styles = StyleSheet.create({
   },
   tipTitle: {
     color: theme.colors.primary,
-    fontWeight: '900',
+    fontWeight: "900",
     marginBottom: 4,
   },
   tipText: {
