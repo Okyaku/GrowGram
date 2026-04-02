@@ -122,7 +122,7 @@ export default function MyPageScreen() {
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
-      <Text style={styles.pageTitle}>マイページ</Text>
+      <Text style={styles.pageTitle}>ユーザーネーム（仮）</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
