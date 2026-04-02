@@ -6,6 +6,7 @@ import { generateClient } from "aws-amplify/api";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { theme } from "../../src/theme";
+import { BackButton } from "../../src/components/common/BackButton";
 
 type CloudProfile = {
   id: string;
@@ -178,7 +179,9 @@ export default function ProfileDetailScreen() {
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
-      <Text style={styles.pageTitle}>プロフィール</Text>
+      <BackButton>
+        <Text style={styles.pageTitle}>プロフィール</Text>
+      </BackButton>
       <View style={styles.headerCard}>
         <View style={styles.avatarWrap}>
           {avatarUrl ? (

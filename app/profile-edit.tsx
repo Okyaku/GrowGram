@@ -12,6 +12,7 @@ import {
   ScreenContainer,
 } from "../src/components/common";
 import { theme } from "../src/theme";
+import { BackButton } from "../src/components/common/BackButton";
 
 type ProfileItem = {
   id: string;
@@ -284,14 +285,9 @@ export default function ProfileEditScreen() {
 
   return (
     <ScreenContainer>
-      <View style={styles.headerRow}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
-        </Pressable>
+      <BackButton>
         <Text style={styles.title}>プロフィール設定</Text>
-        <View style={styles.backBtnDummy} />
-      </View>
-
+      </BackButton>
       <View style={styles.avatarWrap}>
         <Pressable style={styles.avatarButton} onPress={pickAvatar}>
           {avatar || initialAvatarUrl ? (
