@@ -43,7 +43,7 @@ export const ScreenContainer: React.FC<Props> = ({
       {...panHandlers}
     >
       <StatusBar barStyle="dark-content" backgroundColor={backgroundColor} />
-      <Animated.View style={animatedStyle}>
+      <Animated.View style={[styles.animatedContainer, animatedStyle]}>
         {scrollable ? (
           <ScrollView
             contentContainerStyle={styles.scrollContent}
@@ -65,7 +65,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: theme.spacing.xl,
+  },
+  animatedContainer: {
+    flex: 1,
   },
   inner: {
     flex: 1,

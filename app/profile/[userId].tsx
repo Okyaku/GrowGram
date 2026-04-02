@@ -1,11 +1,11 @@
-import React from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { generateClient } from 'aws-amplify/api';
-import { getUrl } from 'aws-amplify/storage';
-import { ScreenContainer } from '../../src/components/common';
-import { theme } from '../../src/theme';
+import React from "react";
+import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { generateClient } from "aws-amplify/api";
+import { getUrl } from "aws-amplify/storage";
+import { ScreenContainer } from "../../src/components/common";
+import { theme } from "../../src/theme";
 
 type CloudProfile = {
   id: string;
@@ -30,6 +30,18 @@ type RenderPost = {
   content: string;
   image: string;
 };
+
+const sanitizeProfileBio = (bio: string) =>
+  bio
+    .split(" / ")
+    .map((part) => part.trim())
+    .filter(
+      (part) =>
+        part.length > 0 &&
+        !part.startsWith("年齢:") &&
+        !part.startsWith("年齢："),
+    )
+    .join(" / ");
 
 const getProfileQuery = /* GraphQL */ `
   query GetProfile($id: ID!) {
@@ -78,8 +90,13 @@ export default function ProfileDetailScreen() {
 
         let loadedProfile: CloudProfile | null = null;
         try {
-          const profileResponse = await client.graphql({ query: getProfileQuery, variables: { id: userId } });
-          loadedProfile = (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
+          const profileResponse = await client.graphql({
+            query: getProfileQuery,
+            variables: { id: userId },
+          });
+          loadedProfile =
+            (profileResponse as { data?: { getProfile?: CloudProfile | null } })
+              .data?.getProfile ?? null;
         } catch {
           loadedProfile = null;
         }
@@ -98,36 +115,44 @@ export default function ProfileDetailScreen() {
 
         const postsResponse = await client.graphql({ query: listPostsQuery });
         const postItems =
-          (postsResponse as { data?: { listPosts?: { items?: Array<CloudPost | null> } } }).data?.listPosts?.items ?? [];
+          (
+            postsResponse as {
+              data?: { listPosts?: { items?: Array<CloudPost | null> } };
+            }
+          ).data?.listPosts?.items ?? [];
 
         const ownPosts = postItems
-          .filter((item): item is CloudPost => Boolean(item?.id && item.content))
+          .filter((item): item is CloudPost =>
+            Boolean(item?.id && item.content),
+          )
           .filter((item) => item.owner === userId)
           .filter((item) => item.isArchived !== true);
 
         const renderPosts = await Promise.all(
           ownPosts.map(async (item) => {
-            let image = 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000';
+            let image =
+              "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
             if (item.imageKey) {
               try {
                 const resolved = await getUrl({ path: item.imageKey });
                 image = resolved.url.toString();
               } catch {
-                image = 'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000';
+                image =
+                  "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
               }
             }
             return {
               id: item.id,
-              title: item.title ?? 'POST',
+              title: item.title ?? "POST",
               content: item.content,
               image,
             } satisfies RenderPost;
-          })
+          }),
         );
 
         setPosts(renderPosts);
       } catch (error) {
-        console.error('[ProfileDetail] failed to load data:', error);
+        console.error("[ProfileDetail] failed to load data:", error);
       } finally {
         setIsLoading(false);
       }
@@ -136,7 +161,9 @@ export default function ProfileDetailScreen() {
 
   const postCount = posts.length;
   const displayName = profile?.username || `ユーザー ${userId}`;
-  const displayBio = profile?.bio || '毎日コツコツ積み上げるのが目標です。開発と学習を継続中。';
+  const displayBio = profile?.bio
+    ? sanitizeProfileBio(profile.bio)
+    : "毎日コツコツ積み上げるのが目標です。開発と学習を継続中。";
 
   if (isLoading) {
     return (
@@ -154,19 +181,45 @@ export default function ProfileDetailScreen() {
       <Text style={styles.pageTitle}>プロフィール</Text>
       <View style={styles.headerCard}>
         <View style={styles.avatarWrap}>
-          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatar} /> : <View style={styles.avatar} />}
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatar} />
+          )}
         </View>
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.bio}>{displayBio}</Text>
         <View style={styles.followRow}>
-          <View style={styles.followItem}><Text style={styles.followValue}>82</Text><Text style={styles.followLabel}>フォロー中</Text></View>
-          <View style={styles.followItem}><Text style={styles.followValue}>124</Text><Text style={styles.followLabel}>フォロワー</Text></View>
-          <View style={styles.followItem}><Text style={styles.followValue}>{postCount}</Text><Text style={styles.followLabel}>投稿数</Text></View>
+          <View style={styles.followItem}>
+            <Text style={styles.followValue}>82</Text>
+            <Text style={styles.followLabel}>フォロー中</Text>
+          </View>
+          <View style={styles.followItem}>
+            <Text style={styles.followValue}>124</Text>
+            <Text style={styles.followLabel}>フォロワー</Text>
+          </View>
+          <View style={styles.followItem}>
+            <Text style={styles.followValue}>{postCount}</Text>
+            <Text style={styles.followLabel}>投稿数</Text>
+          </View>
         </View>
         <View style={styles.badgesRow}>
-          <View style={styles.badge}><Ionicons name='flame' size={14} color={theme.colors.primary} /><Text style={styles.badgeText}>情熱</Text></View>
-          <View style={styles.badge}><Ionicons name='school' size={14} color={theme.colors.primary} /><Text style={styles.badgeText}>学習</Text></View>
-          <View style={styles.badge}><Ionicons name='checkmark-circle' size={14} color={theme.colors.success} /><Text style={styles.badgeText}>継続</Text></View>
+          <View style={styles.badge}>
+            <Ionicons name="flame" size={14} color={theme.colors.primary} />
+            <Text style={styles.badgeText}>情熱</Text>
+          </View>
+          <View style={styles.badge}>
+            <Ionicons name="school" size={14} color={theme.colors.primary} />
+            <Text style={styles.badgeText}>学習</Text>
+          </View>
+          <View style={styles.badge}>
+            <Ionicons
+              name="checkmark-circle"
+              size={14}
+              color={theme.colors.success}
+            />
+            <Text style={styles.badgeText}>継続</Text>
+          </View>
         </View>
       </View>
 
@@ -192,25 +245,25 @@ const styles = StyleSheet.create({
   pageTitle: {
     color: theme.colors.text,
     fontSize: 30,
-    fontWeight: '900',
+    fontWeight: "900",
     marginBottom: theme.spacing.sm,
   },
   loadingWrap: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     gap: theme.spacing.sm,
   },
   loadingText: {
     color: theme.colors.text,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   headerCard: {
     backgroundColor: theme.colors.white,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    alignItems: 'center',
+    alignItems: "center",
     padding: theme.spacing.lg,
     ...theme.shadows.soft,
   },
@@ -220,8 +273,8 @@ const styles = StyleSheet.create({
     borderRadius: 48,
     borderWidth: 2,
     borderColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: theme.spacing.sm,
   },
   avatar: {
@@ -233,41 +286,41 @@ const styles = StyleSheet.create({
   name: {
     color: theme.colors.text,
     fontSize: 24,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   bio: {
     color: theme.colors.textSub,
     marginTop: 4,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 20,
   },
   badgesRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing.xs,
     marginTop: theme.spacing.sm,
   },
   followRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginTop: theme.spacing.sm,
     gap: theme.spacing.md,
   },
   followItem: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   followValue: {
     color: theme.colors.primary,
-    fontWeight: '900',
+    fontWeight: "900",
     fontSize: 18,
   },
   followLabel: {
     color: theme.colors.textSub,
-    fontWeight: '700',
+    fontWeight: "700",
     fontSize: 12,
     marginTop: 2,
   },
   badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
@@ -279,7 +332,7 @@ const styles = StyleSheet.create({
   badgeText: {
     color: theme.colors.text,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   section: {
     ...theme.text.section,
@@ -301,7 +354,7 @@ const styles = StyleSheet.create({
   },
   postText: {
     color: theme.colors.text,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 8,
   },
   postSubText: {
@@ -315,10 +368,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
-    alignItems: 'center',
+    alignItems: "center",
   },
   emptyText: {
     color: theme.colors.textSub,
-    fontWeight: '700',
+    fontWeight: "700",
   },
 });

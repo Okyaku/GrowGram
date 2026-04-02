@@ -24,7 +24,6 @@ const parseProfileBio = (bio: string) => {
   const parts = bio.split(" / ").map((part) => part.trim());
   let challenge = "";
   let longTermGoal = "";
-  let age = "";
 
   parts.forEach((part) => {
     if (part.startsWith("挑戦:")) {
@@ -33,12 +32,9 @@ const parseProfileBio = (bio: string) => {
     if (part.startsWith("長期目標:")) {
       longTermGoal = part.replace("長期目標:", "").trim();
     }
-    if (part.startsWith("年齢:")) {
-      age = part.replace("年齢:", "").trim();
-    }
   });
 
-  return { challenge, longTermGoal, age };
+  return { challenge, longTermGoal };
 };
 
 const getProfileQuery = /* GraphQL */ `
@@ -79,7 +75,6 @@ export default function ProfileEditScreen() {
   const client = React.useMemo(() => generateClient(), []);
   const [avatar, setAvatar] = React.useState<string | null>(null);
   const [username, setUsername] = React.useState("");
-  const [age, setAge] = React.useState("");
   const [challenge, setChallenge] = React.useState("");
   const [longTermGoal, setLongTermGoal] = React.useState("");
   const [currentUserId, setCurrentUserId] = React.useState<string>("");
@@ -143,7 +138,6 @@ export default function ProfileEditScreen() {
         const parsed = parseProfileBio(bio);
         setChallenge(parsed.challenge);
         setLongTermGoal(parsed.longTermGoal);
-        setAge(parsed.age);
         setInitialImageKey(profile.iconImageKey ?? null);
 
         if (profile.iconImageKey) {
@@ -213,7 +207,6 @@ export default function ProfileEditScreen() {
     const bioParts = [
       challenge.trim() ? `挑戦: ${challenge.trim()}` : "",
       longTermGoal.trim() ? `長期目標: ${longTermGoal.trim()}` : "",
-      age.trim() ? `年齢: ${age.trim()}` : "",
     ].filter(Boolean);
     const composedBio = bioParts.join(" / ") || undefined;
 
@@ -279,7 +272,6 @@ export default function ProfileEditScreen() {
       setIsSubmitting(false);
     }
   }, [
-    age,
     avatar,
     challenge,
     currentUserId,
@@ -323,19 +315,6 @@ export default function ProfileEditScreen() {
         placeholder="例: 田中 太郎"
         value={username}
         onChangeText={setUsername}
-      />
-      <InputField
-        label="年齢"
-        placeholder="選択してください"
-        keyboardType="number-pad"
-        value={age}
-        onChangeText={setAge}
-      />
-      <InputField
-        label="現在挑戦していること"
-        placeholder="例: 毎朝5時起き、毎日1時間の読書など"
-        value={challenge}
-        onChangeText={setChallenge}
       />
       <InputField
         label="長期的な目標"
