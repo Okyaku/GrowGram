@@ -140,10 +140,6 @@ export default function MyPageScreen() {
             <Text style={styles.statNumber}>82</Text>
             <Text style={styles.statLabel}>反応</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>210</Text>
-            <Text style={styles.statLabel}>積み上げ</Text>
-          </View>
         </View>
         <CustomButton
           label="プロフィールを編集"
