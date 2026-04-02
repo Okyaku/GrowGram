@@ -203,24 +203,6 @@ export default function ProfileDetailScreen() {
             <Text style={styles.followLabel}>投稿数</Text>
           </View>
         </View>
-        <View style={styles.badgesRow}>
-          <View style={styles.badge}>
-            <Ionicons name="flame" size={14} color={theme.colors.primary} />
-            <Text style={styles.badgeText}>情熱</Text>
-          </View>
-          <View style={styles.badge}>
-            <Ionicons name="school" size={14} color={theme.colors.primary} />
-            <Text style={styles.badgeText}>学習</Text>
-          </View>
-          <View style={styles.badge}>
-            <Ionicons
-              name="checkmark-circle"
-              size={14}
-              color={theme.colors.success}
-            />
-            <Text style={styles.badgeText}>継続</Text>
-          </View>
-        </View>
       </View>
 
       <Text style={styles.section}>過去の投稿（{postCount}件）</Text>
