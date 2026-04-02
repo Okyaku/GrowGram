@@ -325,7 +325,10 @@ export default function ProfileEditScreen() {
 
       <CustomButton
         label="プロフィールを保存して次へ"
-        onPress={() => void onSave()}
+        onPress={() => {
+          void onSave();
+          router.back();
+        }}
         loading={isSubmitting}
       />
 
