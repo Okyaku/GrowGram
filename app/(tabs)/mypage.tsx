@@ -140,7 +140,7 @@ export default function MyPageScreen() {
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
-      <Text style={styles.pageTitle}>設定 / マイページ</Text>
+      <Text style={styles.pageTitle}>マイページ</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
