@@ -176,7 +176,6 @@ export default function GrowthScreen() {
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <Text style={styles.title}>成長ログ</Text>
-      <Text style={styles.swipeHint}>左右スワイプでタブを切り替え</Text>
 
       <View style={styles.objectiveCard}>
         <Text style={styles.objectiveLabel}>PEAK OBJECTIVE</Text>
@@ -196,52 +195,6 @@ export default function GrowthScreen() {
           </View>
         </View>
       </View>
-
-      <View style={styles.card}>
-        <Text style={styles.section}>目標（Goal）</Text>
-        <InputField
-          label="目標タイトル"
-          placeholder="例: 3ヶ月でポートフォリオ完成"
-          value={goalTitle}
-          onChangeText={setGoalTitle}
-        />
-        <InputField
-          label="期限（YYYY-MM-DD）"
-          placeholder="例: 2026-06-30"
-          value={goalDeadline}
-          onChangeText={setGoalDeadline}
-        />
-        <CustomButton
-          label="目標を追加"
-          onPress={() => void onCreateGoal()}
-          loading={isSavingGoal}
-        />
-
-        <View style={styles.goalList}>
-          {goals.length === 0 ? (
-            <Text style={styles.goalEmpty}>まだ目標はありません</Text>
-          ) : null}
-          {goals.map((goal) => (
-            <View key={goal.id} style={styles.goalItem}>
-              <View style={styles.goalHeader}>
-                <Text style={styles.goalTitle}>{goal.title}</Text>
-                <Text
-                  style={[
-                    styles.goalBadge,
-                    goal.isCompleted && styles.goalBadgeDone,
-                  ]}
-                >
-                  {goal.isCompleted ? "達成" : "進行中"}
-                </Text>
-              </View>
-              <Text style={styles.goalDeadline}>
-                期限: {goal.deadline || "未設定"}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
       <View style={styles.card}>
         <View style={styles.rowBetween}>
           <Text style={styles.section}>スキルバランス</Text>
