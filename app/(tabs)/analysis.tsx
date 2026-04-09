@@ -1,9 +1,10 @@
 import React from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Path } from "react-native-svg";
 import { ScreenContainer } from "../../src/components/common";
+import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 type Period = "day" | "month" | "year";
@@ -98,10 +99,20 @@ const leaders = [
 export default function AnalysisScreen() {
   const router = useRouter();
   const [period, setPeriod] = React.useState<Period>("month");
+  const { registerScrollToTop } = useTabScrollTop();
+  const scrollViewRef = React.useRef<ScrollView | null>(null);
   const data = chartData[period];
 
+  React.useEffect(() => {
+    registerScrollToTop("analysis", () => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => registerScrollToTop("analysis", null);
+  }, [registerScrollToTop]);
+
   return (
-    <ScreenContainer backgroundColor={theme.colors.background}>
+    <ScreenContainer backgroundColor={theme.colors.background} scrollViewRef={scrollViewRef}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>分析とランキング</Text>
         <Pressable

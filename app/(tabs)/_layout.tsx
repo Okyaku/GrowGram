@@ -3,6 +3,7 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import PagerView from "../../src/components/navigation/PagerViewCompat";
+import { TabScrollTopProvider, useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { theme } from "../../src/theme";
 import HomeScreen from "./home";
@@ -38,11 +39,13 @@ function TabIcon({
 
 function NativeTabsLayout() {
   const { postCredits } = useRoadmap();
+  const { scrollToTop } = useTabScrollTop();
   const pagerRef = React.useRef<any>(null);
   const [currentPage, setCurrentPage] = React.useState(0);
 
   const handlePageSelected = (e: any) => {
     setCurrentPage(e.nativeEvent.position);
+    scrollToTop(tabs[e.nativeEvent.position]?.name ?? "home");
   };
 
   return (
@@ -77,7 +80,13 @@ function NativeTabsLayout() {
               <Pressable
                 key={tab.name}
                 style={styles.createButton}
-                onPress={() => pagerRef.current?.setPage(index)}
+                onPress={() => {
+                  if (currentPage === index) {
+                    scrollToTop(tab.name);
+                    return;
+                  }
+                  pagerRef.current?.setPage(index);
+                }}
               >
                 <View style={styles.createIconWrap}>
                   <Ionicons
@@ -99,7 +108,13 @@ function NativeTabsLayout() {
             <Pressable
               key={tab.name}
               style={styles.tab}
-              onPress={() => pagerRef.current?.setPage(index)}
+              onPress={() => {
+                if (currentPage === index) {
+                  scrollToTop(tab.name);
+                  return;
+                }
+                pagerRef.current?.setPage(index);
+              }}
             >
               <Ionicons
                 name={tab.icon}
@@ -198,7 +213,11 @@ function WebTabsLayout() {
 }
 
 export default function TabsLayout() {
-  return Platform.OS === "web" ? <WebTabsLayout /> : <NativeTabsLayout />;
+  return (
+    <TabScrollTopProvider>
+      {Platform.OS === "web" ? <WebTabsLayout /> : <NativeTabsLayout />}
+    </TabScrollTopProvider>
+  );
 }
 
 const styles = StyleSheet.create({

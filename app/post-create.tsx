@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { generateClient } from 'aws-amplify/api';
 import { uploadData } from 'aws-amplify/storage';
@@ -27,7 +27,7 @@ export default function PostCreateScreen() {
   const [title, setTitle] = React.useState('');
   const [content, setContent] = React.useState('');
   const [tagsText, setTagsText] = React.useState('');
-  const [selectedImageUri, setSelectedImageUri] = React.useState<string | null>(null);
+  const [selectedImageUris, setSelectedImageUris] = React.useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const pickImage = React.useCallback(async () => {
@@ -40,14 +40,16 @@ export default function PostCreateScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
-      allowsEditing: true,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
 
-    if (result.canceled || !result.assets?.[0]?.uri) {
+    if (result.canceled || !result.assets?.length) {
       return;
     }
 
-    setSelectedImageUri(result.assets[0].uri);
+    setSelectedImageUris(Array.from(new Set(result.assets.map((asset) => asset.uri).filter(Boolean))));
   }, []);
 
   const uploadPostImage = React.useCallback(async (uri: string) => {
@@ -67,6 +69,14 @@ export default function PostCreateScreen() {
 
     return key;
   }, []);
+
+  const uploadPostImages = React.useCallback(
+    async (uris: string[]) => {
+      const uploaded = await Promise.all(uris.map((uri) => uploadPostImage(uri)));
+      return uploaded.filter((item): item is string => Boolean(item));
+    },
+    [uploadPostImage],
+  );
 
   React.useEffect(() => {
     if (unlockedMilestones.length === 0) {
@@ -117,14 +127,17 @@ export default function PostCreateScreen() {
     try {
       setIsSubmitting(true);
       let imageKey: string | undefined;
+      let imageKeys: string[] | undefined;
 
-      if (selectedImageUri) {
+      if (selectedImageUris.length > 0) {
         try {
-          imageKey = await uploadPostImage(selectedImageUri);
+          imageKeys = await uploadPostImages(selectedImageUris);
+          imageKey = imageKeys[0];
         } catch (error) {
           console.error('[PostCreate] failed to upload image, fallback to text-only:', error);
           Alert.alert('画像アップロード失敗', '画像なしで投稿を続行します。');
           imageKey = undefined;
+          imageKeys = undefined;
         }
       }
 
@@ -136,6 +149,7 @@ export default function PostCreateScreen() {
             title: title.trim() || undefined,
             tags,
             imageKey,
+              imageKeys,
           },
         },
       });
@@ -203,16 +217,26 @@ export default function PostCreateScreen() {
       <View style={styles.imageSection}>
         <Text style={styles.sectionLabel}>投稿画像</Text>
         <CustomButton
-          label={selectedImageUri ? '画像を選び直す' : '画像を選択'}
+          label={selectedImageUris.length > 0 ? `${selectedImageUris.length}枚を選択中` : '画像を選択'}
           variant='outline'
           onPress={() => void pickImage()}
         />
-        {selectedImageUri ? (
+        {selectedImageUris.length > 0 ? (
           <View style={styles.previewWrap}>
-            <Image source={{ uri: selectedImageUri }} style={styles.previewImage} />
-            <Pressable onPress={() => setSelectedImageUri(null)} hitSlop={12}>
-              <Text style={styles.removeImageText}>画像を外す</Text>
-            </Pressable>
+            <View style={styles.previewHeaderRow}>
+              <Text style={styles.previewCount}>{selectedImageUris.length}枚選択中</Text>
+              <Pressable onPress={() => setSelectedImageUris([])} hitSlop={12}>
+                <Text style={styles.removeImageText}>すべて外す</Text>
+              </Pressable>
+            </View>
+            <Image source={{ uri: selectedImageUris[0] }} style={styles.previewImage} />
+            {selectedImageUris.length > 1 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbRow}>
+                {selectedImageUris.slice(1).map((uri) => (
+                  <Image key={uri} source={{ uri }} style={styles.thumbImage} />
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -287,12 +311,33 @@ const styles = StyleSheet.create({
     padding: theme.spacing.sm,
     alignItems: 'center',
   },
+  previewHeaderRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.xs,
+  },
+  previewCount: {
+    color: theme.colors.text,
+    fontWeight: '800',
+  },
   previewImage: {
     width: '100%',
     height: 180,
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surface,
     marginBottom: theme.spacing.xs,
+  },
+  thumbRow: {
+    gap: 8,
+    paddingTop: 4,
+  },
+  thumbImage: {
+    width: 68,
+    height: 68,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surface,
   },
   removeImageText: {
     color: theme.colors.danger,

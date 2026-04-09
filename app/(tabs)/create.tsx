@@ -1,10 +1,11 @@
 import React from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
 import { useRoadmap } from "../../src/store/roadmap-context";
+import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 export default function CreateScreen() {
@@ -16,6 +17,8 @@ export default function CreateScreen() {
     activeUnlockedMilestones,
     clearCurrentMilestone,
   } = useRoadmap();
+  const { registerScrollToTop } = useTabScrollTop();
+  const scrollViewRef = React.useRef<ScrollView | null>(null);
 
   const renderMilestones = milestones.slice(0, 5).reverse();
   const milestonePositions = [
@@ -38,8 +41,19 @@ export default function CreateScreen() {
     Alert.alert("マイルストーン達成", "通常投稿が1回解放されました。");
   };
 
+  React.useEffect(() => {
+    registerScrollToTop("create", () => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => registerScrollToTop("create", null);
+  }, [registerScrollToTop]);
+
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface}>
+    <ScreenContainer
+      backgroundColor={theme.colors.surface}
+      scrollViewRef={scrollViewRef}
+    >
       <View style={styles.headerRow}>
         <View style={styles.brandRow}>
           <Ionicons name="sparkles" size={22} color={theme.colors.primary} />
@@ -67,11 +81,7 @@ export default function CreateScreen() {
             </Text>
           </View>
           <View style={styles.objectiveIcon}>
-            <Ionicons
-              name="desktop-outline"
-              size={20}
-              color={theme.colors.onPrimary}
-            />
+            <Ionicons name="desktop-outline" size={20} color={theme.colors.onPrimary} />
           </View>
         </View>
       </View>
@@ -95,7 +105,7 @@ export default function CreateScreen() {
 
       <View style={styles.roadmapWrap}>
         <Svg
-          style={styles.pathLayer}
+          style={styles.pathLayer as any}
           viewBox="0 0 360 860"
           preserveAspectRatio="none"
         >
@@ -307,7 +317,11 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   pathLayer: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   nodeGroup: {
     position: "absolute",

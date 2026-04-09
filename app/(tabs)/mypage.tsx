@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
@@ -9,6 +9,7 @@ import { getUrl } from "aws-amplify/storage";
 import { CustomButton } from "../../src/components/common";
 import { ScreenContainer } from "../../src/components/common";
 import { useRoadmap } from "../../src/store/roadmap-context";
+import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 const menus = [
@@ -83,6 +84,8 @@ export default function MyPageScreen() {
   const router = useRouter();
 
   const client = React.useMemo(() => generateClient(), []);
+  const { registerScrollToTop } = useTabScrollTop();
+  const scrollViewRef = React.useRef<ScrollView | null>(null);
   const { logout } = useRoadmap();
   const [name, setName] = React.useState("ユーザー");
   const [caption, setCaption] =
@@ -92,6 +95,14 @@ export default function MyPageScreen() {
   const [followersCount, setFollowersCount] = React.useState(0);
   const [followingCount, setFollowingCount] = React.useState(0);
   const [savedCount, setSavedCount] = React.useState(0);
+
+  React.useEffect(() => {
+    registerScrollToTop("mypage", () => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => registerScrollToTop("mypage", null);
+  }, [registerScrollToTop]);
 
   const loadMyPageData = React.useCallback(async () => {
     try {
@@ -179,7 +190,7 @@ export default function MyPageScreen() {
   }, [logout, router]);
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface}>
+    <ScreenContainer backgroundColor={theme.colors.surface} scrollViewRef={scrollViewRef}>
       <Text style={styles.pageTitle}>@{name}</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (

@@ -72,6 +72,7 @@ export default function StoryCreateScreen() {
     try {
       setIsSubmitting(true);
       const imageKey = await uploadStoryImage(imageUri);
+      
       const response = await client.graphql({
         query: createStoryMutation,
         variables: {

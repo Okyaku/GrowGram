@@ -2,6 +2,8 @@ import React, { ReactNode } from "react";
 import {
   Animated,
   GestureResponderHandlers,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,6 +19,9 @@ type Props = {
   backgroundColor?: string;
   panHandlers?: GestureResponderHandlers;
   slideAnim?: Animated.Value;
+  keyboardAvoiding?: boolean;
+  keyboardVerticalOffset?: number;
+  scrollViewRef?: React.RefObject<ScrollView | null>;
 };
 
 export const ScreenContainer: React.FC<Props> = ({
@@ -26,6 +31,9 @@ export const ScreenContainer: React.FC<Props> = ({
   backgroundColor = theme.colors.background,
   panHandlers,
   slideAnim,
+  keyboardAvoiding = true,
+  keyboardVerticalOffset = 0,
+  scrollViewRef,
 }) => {
   const content = (
     <View style={[styles.inner, padded && styles.padded]}>{children}</View>
@@ -43,18 +51,33 @@ export const ScreenContainer: React.FC<Props> = ({
       {...panHandlers}
     >
       <StatusBar barStyle="dark-content" backgroundColor={backgroundColor} />
-      <Animated.View style={[styles.animatedContainer, animatedStyle]}>
-        {scrollable ? (
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {content}
-          </ScrollView>
-        ) : (
-          content
-        )}
-      </Animated.View>
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={
+          keyboardAvoiding
+            ? Platform.OS === "ios"
+              ? "padding"
+              : "height"
+            : undefined
+        }
+        keyboardVerticalOffset={keyboardAvoiding ? keyboardVerticalOffset : 0}
+      >
+        <Animated.View style={[styles.animatedContainer, animatedStyle]}>
+          {scrollable ? (
+            <ScrollView
+              ref={scrollViewRef}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            >
+              {content}
+            </ScrollView>
+          ) : (
+            content
+          )}
+        </Animated.View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -67,6 +90,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: theme.spacing.xl,
+  },
+  keyboardContainer: {
+    flex: 1,
   },
   animatedContainer: {
     flex: 1,

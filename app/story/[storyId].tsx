@@ -15,6 +15,7 @@ type CloudStory = {
   imageKey: string;
   caption?: string | null;
   createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type CloudProfile = {
@@ -41,6 +42,7 @@ const getStoryQuery = /* GraphQL */ `
       imageKey
       caption
       createdAt
+      updatedAt
     }
   }
 `;
@@ -110,7 +112,6 @@ const createDirectMessageMutation = /* GraphQL */ `
 export default function StoryViewScreen() {
   const router = useRouter();
   const client = React.useMemo(() => generateClient(), []);
-  const { recordDailyActivity, adjustScore } = useRoadmap();
   const { storyId } = useLocalSearchParams<{ storyId: string }>();
   const [isLoading, setIsLoading] = React.useState(true);
   const [story, setStory] = React.useState<CloudStory | null>(null);
@@ -221,7 +222,6 @@ export default function StoryViewScreen() {
       const existingId = reactionRecordIdByType[reactionType];
       if (existingId) {
         await client.graphql({ query: deleteStoryReactionMutation, variables: { input: { id: existingId } } });
-        adjustScore(-30);
         setReactionRecordIdByType((prev) => {
           const next = { ...prev };
           delete next[reactionType];
@@ -236,14 +236,12 @@ export default function StoryViewScreen() {
           (response as { data?: { createStoryReaction?: { id?: string } } }).data?.createStoryReaction?.id ?? '';
         if (createdId) {
           setReactionRecordIdByType((prev) => ({ ...prev, [reactionType]: createdId }));
-          recordDailyActivity('action');
-          adjustScore(30);
         }
       }
     } catch (error) {
       console.error('[StoryView] failed to toggle reaction:', error);
     }
-  }, [adjustScore, client, reactionRecordIdByType, recordDailyActivity, story?.id]);
+  }, [client, reactionRecordIdByType, story?.id]);
 
   const showGestureFeedback = React.useCallback((type: ReactionType) => {
     if (feedbackTimerRef.current) {

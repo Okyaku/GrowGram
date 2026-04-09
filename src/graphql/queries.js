@@ -1,6 +1,19 @@
 /* eslint-disable */
 // this is an auto generated file. This will be overwritten
 
+export const generateRoadmapWithAI = /* GraphQL */ `
+  query GenerateRoadmapWithAI($input: AIRoadmapInput!) {
+    generateRoadmapWithAI(input: $input) {
+      goal
+      milestones {
+        title
+        description
+        __typename
+      }
+      __typename
+    }
+  }
+`;
 export const getPost = /* GraphQL */ `
   query GetPost($id: ID!) {
     getPost(id: $id) {
@@ -9,6 +22,7 @@ export const getPost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -33,6 +47,7 @@ export const listPosts = /* GraphQL */ `
         title
         tags
         imageKey
+        imageKeys
         isArchived
         passion
         logic
@@ -246,6 +261,42 @@ export const listDirectMessages = /* GraphQL */ `
         body
         storyId
         storyCaption
+        readAt
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const getReadReceipt = /* GraphQL */ `
+  query GetReadReceipt($id: ID!) {
+    getReadReceipt(id: $id) {
+      id
+      messageId
+      readerId
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const listReadReceipts = /* GraphQL */ `
+  query ListReadReceipts(
+    $filter: ModelReadReceiptFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listReadReceipts(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        messageId
+        readerId
         readAt
         createdAt
         updatedAt
