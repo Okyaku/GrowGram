@@ -1,5 +1,6 @@
 {
   "AppSyncApiName": "growgram",
+  "BedrockModelId": "anthropic.claude-3-haiku-20240307-v1:0",
   "DynamoDBBillingMode": "PAY_PER_REQUEST",
   "DynamoDBEnableServerSideEncryption": false,
   "AuthCognitoUserPoolId": {
