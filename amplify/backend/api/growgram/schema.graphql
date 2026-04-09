@@ -78,6 +78,71 @@ type PostSave
   updatedAt: AWSDateTime
 }
 
+type Follow
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  followerId: ID!
+  followingId: ID!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type DirectMessage
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  fromUserId: ID!
+  toUserId: ID!
+  body: String!
+  storyId: ID
+  storyCaption: String
+  readAt: AWSDateTime
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PostComment
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  postId: ID!
+  content: String!
+  mentionHandles: [String]
+  mentionUserIds: [ID]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CommentLike
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  commentId: ID!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
 type Goal
   @model
   @auth(rules: [{ allow: owner }]) {

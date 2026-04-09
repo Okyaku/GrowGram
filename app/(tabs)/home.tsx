@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -57,6 +58,34 @@ type CloudSave = {
   id: string;
   owner?: string | null;
   postId: string;
+};
+
+type CloudComment = {
+  id: string;
+  postId: string;
+  owner?: string | null;
+  content: string;
+  mentionHandles?: string[] | null;
+  mentionUserIds?: string[] | null;
+  createdAt?: string | null;
+};
+
+type CloudCommentLike = {
+  id: string;
+  commentId: string;
+  owner?: string | null;
+};
+
+type FeedComment = {
+  id: string;
+  postId: string;
+  ownerId: string;
+  ownerName: string;
+  ownerAvatar?: string;
+  content: string;
+  createdAt: string;
+  likeCount: number;
+  likedByMe: boolean;
 };
 
 type FeedPost = {
@@ -155,6 +184,61 @@ const listPostSavesQuery = /* GraphQL */ `
         owner
         postId
       }
+    }
+  }
+`;
+
+const listPostCommentsQuery = /* GraphQL */ `
+  query ListPostComments {
+    listPostComments(limit: 1000) {
+      items {
+        id
+        postId
+        owner
+        content
+        mentionHandles
+        mentionUserIds
+        createdAt
+      }
+    }
+  }
+`;
+
+const createPostCommentMutation = /* GraphQL */ `
+  mutation CreatePostComment($input: CreatePostCommentInput!) {
+    createPostComment(input: $input) {
+      id
+      postId
+    }
+  }
+`;
+
+const listCommentLikesQuery = /* GraphQL */ `
+  query ListCommentLikes {
+    listCommentLikes(limit: 1000) {
+      items {
+        id
+        commentId
+        owner
+      }
+    }
+  }
+`;
+
+const createCommentLikeMutation = /* GraphQL */ `
+  mutation CreateCommentLike($input: CreateCommentLikeInput!) {
+    createCommentLike(input: $input) {
+      id
+      commentId
+    }
+  }
+`;
+
+const deleteCommentLikeMutation = /* GraphQL */ `
+  mutation DeleteCommentLike($input: DeleteCommentLikeInput!) {
+    deleteCommentLike(input: $input) {
+      id
+      commentId
     }
   }
 `;
@@ -268,6 +352,17 @@ export default function HomeScreen() {
   const [saveRecordIdByPost, setSaveRecordIdByPost] = React.useState<
     Record<string, string>
   >({});
+  const [profileIdByUsername, setProfileIdByUsername] = React.useState<
+    Record<string, string>
+  >({});
+  const [commentsByPost, setCommentsByPost] = React.useState<
+    Record<string, FeedComment[]>
+  >({});
+  const [commentInputByPost, setCommentInputByPost] = React.useState<
+    Record<string, string>
+  >({});
+  const [commentLikeRecordIdByComment, setCommentLikeRecordIdByComment] =
+    React.useState<Record<string, string>>({});
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     postId: string;
     label: string;
@@ -299,12 +394,16 @@ export default function HomeScreen() {
         likesResponse,
         savesResponse,
         storiesResponse,
+        commentsResponse,
+        commentLikesResponse,
       ] = await Promise.all([
         client.graphql({ query: listPostsQuery }),
         client.graphql({ query: listProfilesQuery }),
         client.graphql({ query: listPostLikesQuery }),
         client.graphql({ query: listPostSavesQuery }),
         client.graphql({ query: listStoriesQuery }),
+        client.graphql({ query: listPostCommentsQuery }),
+        client.graphql({ query: listCommentLikesQuery }),
       ]);
 
       const postItems =
@@ -337,6 +436,18 @@ export default function HomeScreen() {
             data?: { listStories?: { items?: Array<CloudStory | null> } };
           }
         ).data?.listStories?.items ?? [];
+      const commentItems =
+        (
+          commentsResponse as {
+            data?: { listPostComments?: { items?: Array<CloudComment | null> } };
+          }
+        ).data?.listPostComments?.items ?? [];
+      const commentLikeItems =
+        (
+          commentLikesResponse as {
+            data?: { listCommentLikes?: { items?: Array<CloudCommentLike | null> } };
+          }
+        ).data?.listCommentLikes?.items ?? [];
 
       const profileWithAvatar = await Promise.all(
         profileItems
@@ -352,6 +463,7 @@ export default function HomeScreen() {
               }
             }
             return {
+              id: item.id,
               owner: item.owner ?? "",
               username: item.username ?? "",
               avatarUrl,
@@ -361,7 +473,13 @@ export default function HomeScreen() {
       const profileByOwner = new Map(
         profileWithAvatar.map((profile) => [profile.owner, profile]),
       );
-
+      const usernameToProfileId: Record<string, string> = {};
+      profileItems
+        .filter((item): item is CloudProfile => Boolean(item?.id && item.username))
+        .forEach((item) => {
+          usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
+        });
+      setProfileIdByUsername(usernameToProfileId);
       const passionCountByPost: Record<string, number> = {};
       const logicCountByPost: Record<string, number> = {};
       const routineCountByPost: Record<string, number> = {};
@@ -409,6 +527,49 @@ export default function HomeScreen() {
       setSavedPostIds(mySavedIds);
       setReactionRecordIdByKey(myReactionRecordIds);
       setSaveRecordIdByPost(mySaveRecordIds);
+
+      const commentLikeCountByComment: Record<string, number> = {};
+      const myCommentLikeRecordIds: Record<string, string> = {};
+      commentLikeItems
+        .filter((item): item is CloudCommentLike => Boolean(item?.id && item.commentId))
+        .forEach((item) => {
+          commentLikeCountByComment[item.commentId] =
+            (commentLikeCountByComment[item.commentId] ?? 0) + 1;
+          if (owner && item.owner === owner) {
+            myCommentLikeRecordIds[item.commentId] = item.id;
+          }
+        });
+
+      const nextCommentsByPost: Record<string, FeedComment[]> = {};
+      commentItems
+        .filter((item): item is CloudComment => Boolean(item?.id && item.postId && item.content))
+        .forEach((item) => {
+          const commentOwner = item.owner ?? "";
+          const profile = profileByOwner.get(commentOwner);
+          const nextComment: FeedComment = {
+            id: item.id,
+            postId: item.postId,
+            ownerId: profile?.id ?? commentOwner,
+            ownerName: profile?.username || (commentOwner.split("@")[0] || "USER").toUpperCase(),
+            ownerAvatar: profile?.avatarUrl,
+            content: item.content,
+            createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
+            likeCount: commentLikeCountByComment[item.id] ?? 0,
+            likedByMe: Boolean(myCommentLikeRecordIds[item.id]),
+          };
+          if (!nextCommentsByPost[item.postId]) {
+            nextCommentsByPost[item.postId] = [];
+          }
+          nextCommentsByPost[item.postId].push(nextComment);
+        });
+
+      Object.keys(nextCommentsByPost).forEach((postId) => {
+        nextCommentsByPost[postId].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+      });
+      setCommentsByPost(nextCommentsByPost);
+      setCommentLikeRecordIdByComment(myCommentLikeRecordIds);
 
       const normalizedPosts = postItems
         .filter((item): item is CloudPost => Boolean(item?.id && item.content))
@@ -761,6 +922,97 @@ export default function HomeScreen() {
     [client, loadFeed],
   );
 
+  const extractMentionHandles = React.useCallback((raw: string) => {
+    const matches = raw.match(/@([a-zA-Z0-9_.]+)/g) ?? [];
+    return Array.from(new Set(matches.map((tag) => tag.replace("@", "").toLowerCase())));
+  }, []);
+
+  const onSubmitComment = React.useCallback(
+    async (postId: string) => {
+      const content = (commentInputByPost[postId] ?? "").trim();
+      if (!content) {
+        return;
+      }
+
+      try {
+        const mentionHandles = extractMentionHandles(content);
+        const mentionUserIds = mentionHandles
+          .map((handle) => profileIdByUsername[handle])
+          .filter((id): id is string => Boolean(id));
+        await client.graphql({
+          query: createPostCommentMutation,
+          variables: {
+            input: {
+              postId,
+              content,
+              mentionHandles,
+              mentionUserIds,
+            },
+          },
+        });
+        setCommentInputByPost((prev) => ({ ...prev, [postId]: "" }));
+        await loadFeed();
+      } catch (error) {
+        console.error("[Home] failed to create comment:", error);
+        Alert.alert("失敗", "コメント投稿に失敗しました。");
+      }
+    },
+    [client, commentInputByPost, extractMentionHandles, loadFeed, profileIdByUsername],
+  );
+
+  const onToggleCommentLike = React.useCallback(
+    async (comment: FeedComment) => {
+      try {
+        const existingId = commentLikeRecordIdByComment[comment.id];
+        if (existingId) {
+          await client.graphql({
+            query: deleteCommentLikeMutation,
+            variables: { input: { id: existingId } },
+          });
+        } else {
+          await client.graphql({
+            query: createCommentLikeMutation,
+            variables: { input: { commentId: comment.id } },
+          });
+        }
+        await loadFeed();
+      } catch (error) {
+        console.error("[Home] failed to toggle comment like:", error);
+        Alert.alert("失敗", "コメントいいね更新に失敗しました。");
+      }
+    },
+    [client, commentLikeRecordIdByComment, loadFeed],
+  );
+
+  const renderCommentContent = React.useCallback(
+    (content: string) => {
+      const segments = content.split(/(@[a-zA-Z0-9_.]+)/g);
+      return segments.map((segment, index) => {
+        if (segment.startsWith("@")) {
+          const handle = segment.slice(1).toLowerCase();
+          const profileId = profileIdByUsername[handle];
+          if (profileId) {
+            return (
+              <Text
+                key={`${segment}-${index}`}
+                style={styles.mentionText}
+                onPress={() => router.push(`/profile/${profileId}`)}
+              >
+                {segment}
+              </Text>
+            );
+          }
+        }
+        return (
+          <Text key={`${segment}-${index}`} style={styles.commentTextPlain}>
+            {segment}
+          </Text>
+        );
+      });
+    },
+    [profileIdByUsername, router],
+  );
+
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
       <View style={styles.headerRow}>
@@ -978,6 +1230,66 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               ) : null}
+            </View>
+
+            <View style={styles.commentSection}>
+              <Text style={styles.commentSectionTitle}>コメント</Text>
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  value={commentInputByPost[post.id] ?? ""}
+                  onChangeText={(text) =>
+                    setCommentInputByPost((prev) => ({ ...prev, [post.id]: text }))
+                  }
+                  placeholder="コメントを書く（@username でメンション）"
+                  placeholderTextColor={theme.colors.textSub}
+                  style={styles.commentInput}
+                />
+                <Pressable
+                  style={styles.commentSendButton}
+                  onPress={() => void onSubmitComment(post.id)}
+                >
+                  <Ionicons name="send" size={14} color={theme.colors.onPrimary} />
+                </Pressable>
+              </View>
+
+              {(commentsByPost[post.id] ?? []).length === 0 ? (
+                <Text style={styles.commentEmptyText}>最初のコメントをしてみよう。</Text>
+              ) : null}
+
+              {(commentsByPost[post.id] ?? []).map((comment) => (
+                <View key={comment.id} style={styles.commentCard}>
+                  <View style={styles.commentHeaderRow}>
+                    <Pressable
+                      style={styles.commentOwnerRow}
+                      onPress={() => {
+                        if (comment.ownerId) {
+                          router.push(`/profile/${comment.ownerId}`);
+                        }
+                      }}
+                    >
+                      {comment.ownerAvatar ? (
+                        <Image source={{ uri: comment.ownerAvatar }} style={styles.commentAvatar} />
+                      ) : (
+                        <View style={styles.commentAvatarPlaceholder} />
+                      )}
+                      <Text style={styles.commentOwner}>{comment.ownerName}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.commentLikeButton}
+                      onPress={() => void onToggleCommentLike(comment)}
+                    >
+                      <Ionicons
+                        name={comment.likedByMe ? "heart" : "heart-outline"}
+                        size={14}
+                        color={comment.likedByMe ? theme.colors.danger : theme.colors.textSub}
+                      />
+                      <Text style={styles.commentLikeText}>{comment.likeCount}</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.commentText}>{renderCommentContent(comment.content)}</Text>
+                </View>
+              ))}
             </View>
           </View>
         );
@@ -1206,5 +1518,110 @@ const styles = StyleSheet.create({
   },
   postActionTextActive: {
     color: theme.colors.primary,
+  },
+  commentSection: {
+    marginTop: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    paddingTop: theme.spacing.sm,
+    gap: 8,
+  },
+  commentSectionTitle: {
+    color: theme.colors.text,
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  commentInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  commentInput: {
+    flex: 1,
+    minHeight: 38,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.text,
+    paddingHorizontal: 12,
+    fontWeight: "600",
+  },
+  commentSendButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  commentEmptyText: {
+    color: theme.colors.textSub,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  commentCard: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  commentHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  commentOwnerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  commentAvatar: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.white,
+  },
+  commentAvatarPlaceholder: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.white,
+  },
+  commentOwner: {
+    color: theme.colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  commentLikeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  commentLikeText: {
+    color: theme.colors.textSub,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  commentText: {
+    color: theme.colors.text,
+    lineHeight: 19,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  commentTextPlain: {
+    color: theme.colors.text,
+    lineHeight: 19,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  mentionText: {
+    color: theme.colors.primary,
+    lineHeight: 19,
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

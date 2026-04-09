@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, ImageBackground, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { generateClient } from 'aws-amplify/api';
@@ -19,6 +19,7 @@ type CloudStory = {
 
 type CloudProfile = {
   id: string;
+  owner?: string | null;
   username?: string | null;
   iconImageKey?: string | null;
 };
@@ -48,8 +49,21 @@ const getProfileQuery = /* GraphQL */ `
   query GetProfile($id: ID!) {
     getProfile(id: $id) {
       id
+      owner
       username
       iconImageKey
+    }
+  }
+`;
+
+const listProfilesQuery = /* GraphQL */ `
+  query ListProfiles {
+    listProfiles(limit: 1000) {
+      items {
+        id
+        owner
+        username
+      }
     }
   }
 `;
@@ -85,6 +99,14 @@ const deleteStoryReactionMutation = /* GraphQL */ `
   }
 `;
 
+const createDirectMessageMutation = /* GraphQL */ `
+  mutation CreateDirectMessage($input: CreateDirectMessageInput!) {
+    createDirectMessage(input: $input) {
+      id
+    }
+  }
+`;
+
 export default function StoryViewScreen() {
   const router = useRouter();
   const client = React.useMemo(() => generateClient(), []);
@@ -93,8 +115,12 @@ export default function StoryViewScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [story, setStory] = React.useState<CloudStory | null>(null);
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
+  const [recipientUserId, setRecipientUserId] = React.useState('');
   const [imageUrl, setImageUrl] = React.useState('https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200');
   const [reactionRecordIdByType, setReactionRecordIdByType] = React.useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = React.useState('');
+  const [message, setMessage] = React.useState('');
+  const [isSendingMessage, setIsSendingMessage] = React.useState(false);
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     label: string;
     icon: 'flame' | 'bulb' | 'ribbon';
@@ -135,14 +161,27 @@ export default function StoryViewScreen() {
           try {
             const profileResponse = await client.graphql({ query: getProfileQuery, variables: { id: loadedStory.owner } });
             const loadedProfile = (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile;
-            setProfile(loadedProfile ?? null);
+            if (loadedProfile?.id) {
+              setProfile(loadedProfile);
+              setRecipientUserId(loadedProfile.id);
+            } else {
+              const profileListResponse = await client.graphql({ query: listProfilesQuery });
+              const profiles =
+                (profileListResponse as { data?: { listProfiles?: { items?: Array<CloudProfile | null> } } }).data
+                  ?.listProfiles?.items ?? [];
+              const matched = profiles.find((item) => item?.owner === loadedStory.owner) ?? null;
+              setProfile(matched ?? null);
+              setRecipientUserId(matched?.id ?? loadedStory.owner);
+            }
           } catch {
             setProfile(null);
+            setRecipientUserId(loadedStory.owner);
           }
         }
 
         try {
           const currentUser = await getCurrentUser();
+          setCurrentUserId(currentUser.userId);
           const reactionsResponse = await client.graphql({ query: listStoryReactionsQuery });
           const items =
             (reactionsResponse as { data?: { listStoryReactions?: { items?: Array<StoryReaction | null> } } }).data
@@ -275,6 +314,43 @@ export default function StoryViewScreen() {
     }, 280);
   }, [showGestureFeedback, toggleStoryReaction]);
 
+  const onSendStoryMessage = React.useCallback(async () => {
+    if (!story?.id || !recipientUserId || !currentUserId || isSendingMessage) {
+      return;
+    }
+    if (recipientUserId === currentUserId) {
+      Alert.alert('送信不可', '自分のストーリーには送信できません。');
+      return;
+    }
+    if (!message.trim()) {
+      Alert.alert('入力してください', 'メッセージを入力してください。');
+      return;
+    }
+
+    try {
+      setIsSendingMessage(true);
+      await client.graphql({
+        query: createDirectMessageMutation,
+        variables: {
+          input: {
+            fromUserId: currentUserId,
+            toUserId: recipientUserId,
+            body: message.trim(),
+            storyId: story.id,
+            storyCaption: story.caption ?? null,
+          },
+        },
+      });
+      setMessage('');
+      router.push(`/chat/${recipientUserId}`);
+    } catch (error) {
+      console.error('[StoryView] failed to send story message:', error);
+      Alert.alert('送信失敗', 'メッセージ送信に失敗しました。');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  }, [client, currentUserId, isSendingMessage, message, recipientUserId, router, story?.caption, story?.id]);
+
   React.useEffect(() => {
     return () => {
       if (tapStateRef.current.timer) {
@@ -362,8 +438,20 @@ export default function StoryViewScreen() {
           </View>
 
           <View style={styles.inputRow}>
-            <TextInput placeholder='メッセージを送信...' placeholderTextColor={theme.colors.textSub} style={styles.input} />
-            <Pressable style={styles.sendBtn}><Ionicons name='send' size={20} color={theme.colors.onPrimary} /></Pressable>
+            <TextInput
+              value={message}
+              onChangeText={setMessage}
+              placeholder='ストーリー参照でメッセージを送信'
+              placeholderTextColor={theme.colors.textSub}
+              style={styles.input}
+            />
+            <Pressable
+              style={[styles.sendBtn, isSendingMessage && styles.sendBtnDisabled]}
+              onPress={() => void onSendStoryMessage()}
+              disabled={isSendingMessage}
+            >
+              <Ionicons name='send' size={20} color={theme.colors.onPrimary} />
+            </Pressable>
           </View>
         </View>
       </View>
@@ -545,5 +633,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sendBtnDisabled: {
+    opacity: 0.5,
   },
 });

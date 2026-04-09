@@ -256,6 +256,213 @@ export const deletePostSave = /* GraphQL */ `
     }
   }
 `;
+export const createFollow = /* GraphQL */ `
+  mutation CreateFollow(
+    $input: CreateFollowInput!
+    $condition: ModelFollowConditionInput
+  ) {
+    createFollow(input: $input, condition: $condition) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const updateFollow = /* GraphQL */ `
+  mutation UpdateFollow(
+    $input: UpdateFollowInput!
+    $condition: ModelFollowConditionInput
+  ) {
+    updateFollow(input: $input, condition: $condition) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const deleteFollow = /* GraphQL */ `
+  mutation DeleteFollow(
+    $input: DeleteFollowInput!
+    $condition: ModelFollowConditionInput
+  ) {
+    deleteFollow(input: $input, condition: $condition) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const createDirectMessage = /* GraphQL */ `
+  mutation CreateDirectMessage(
+    $input: CreateDirectMessageInput!
+    $condition: ModelDirectMessageConditionInput
+  ) {
+    createDirectMessage(input: $input, condition: $condition) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const updateDirectMessage = /* GraphQL */ `
+  mutation UpdateDirectMessage(
+    $input: UpdateDirectMessageInput!
+    $condition: ModelDirectMessageConditionInput
+  ) {
+    updateDirectMessage(input: $input, condition: $condition) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const deleteDirectMessage = /* GraphQL */ `
+  mutation DeleteDirectMessage(
+    $input: DeleteDirectMessageInput!
+    $condition: ModelDirectMessageConditionInput
+  ) {
+    deleteDirectMessage(input: $input, condition: $condition) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const createPostComment = /* GraphQL */ `
+  mutation CreatePostComment(
+    $input: CreatePostCommentInput!
+    $condition: ModelPostCommentConditionInput
+  ) {
+    createPostComment(input: $input, condition: $condition) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const updatePostComment = /* GraphQL */ `
+  mutation UpdatePostComment(
+    $input: UpdatePostCommentInput!
+    $condition: ModelPostCommentConditionInput
+  ) {
+    updatePostComment(input: $input, condition: $condition) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const deletePostComment = /* GraphQL */ `
+  mutation DeletePostComment(
+    $input: DeletePostCommentInput!
+    $condition: ModelPostCommentConditionInput
+  ) {
+    deletePostComment(input: $input, condition: $condition) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const createCommentLike = /* GraphQL */ `
+  mutation CreateCommentLike(
+    $input: CreateCommentLikeInput!
+    $condition: ModelCommentLikeConditionInput
+  ) {
+    createCommentLike(input: $input, condition: $condition) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const updateCommentLike = /* GraphQL */ `
+  mutation UpdateCommentLike(
+    $input: UpdateCommentLikeInput!
+    $condition: ModelCommentLikeConditionInput
+  ) {
+    updateCommentLike(input: $input, condition: $condition) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const deleteCommentLike = /* GraphQL */ `
+  mutation DeleteCommentLike(
+    $input: DeleteCommentLikeInput!
+    $condition: ModelCommentLikeConditionInput
+  ) {
+    deleteCommentLike(input: $input, condition: $condition) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
 export const createGoal = /* GraphQL */ `
   mutation CreateGoal(
     $input: CreateGoalInput!

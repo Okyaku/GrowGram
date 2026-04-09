@@ -22,6 +22,18 @@ type CloudProfile = {
   iconImageKey?: string | null;
 };
 
+type CloudFollow = {
+  id: string;
+  followerId: string;
+  followingId: string;
+};
+
+type CloudSave = {
+  id: string;
+  owner?: string | null;
+  postId: string;
+};
+
 const getProfileQuery = /* GraphQL */ `
   query GetProfile($id: ID!) {
     getProfile(id: $id) {
@@ -43,6 +55,30 @@ const listPostsCountQuery = /* GraphQL */ `
   }
 `;
 
+const listFollowsQuery = /* GraphQL */ `
+  query ListFollows {
+    listFollows(limit: 2000) {
+      items {
+        id
+        followerId
+        followingId
+      }
+    }
+  }
+`;
+
+const listPostSavesQuery = /* GraphQL */ `
+  query ListPostSaves {
+    listPostSaves(limit: 2000) {
+      items {
+        id
+        owner
+        postId
+      }
+    }
+  }
+`;
+
 export default function MyPageScreen() {
   const router = useRouter();
 
@@ -53,6 +89,9 @@ export default function MyPageScreen() {
     React.useState("プロフィールを設定してください");
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
   const [postCount, setPostCount] = React.useState(0);
+  const [followersCount, setFollowersCount] = React.useState(0);
+  const [followingCount, setFollowingCount] = React.useState(0);
+  const [savedCount, setSavedCount] = React.useState(0);
 
   const loadMyPageData = React.useCallback(async () => {
     try {
@@ -62,9 +101,11 @@ export default function MyPageScreen() {
         return;
       }
 
-      const [profileResponse, postsResponse] = await Promise.all([
+      const [profileResponse, postsResponse, followsResponse, savesResponse] = await Promise.all([
         client.graphql({ query: getProfileQuery, variables: { id: userId } }),
         client.graphql({ query: listPostsCountQuery }),
+        client.graphql({ query: listFollowsQuery }),
+        client.graphql({ query: listPostSavesQuery }),
       ]);
 
       const profile =
@@ -96,6 +137,23 @@ export default function MyPageScreen() {
           }
         ).data?.listPosts?.items ?? [];
       setPostCount(posts.filter((item) => Boolean(item?.id)).length);
+
+      const follows =
+        (followsResponse as { data?: { listFollows?: { items?: Array<CloudFollow | null> } } }).data?.listFollows
+          ?.items ?? [];
+      const normalizedFollows = follows.filter(
+        (item): item is CloudFollow => Boolean(item?.id && item.followerId && item.followingId),
+      );
+      setFollowersCount(normalizedFollows.filter((item) => item.followingId === userId).length);
+      setFollowingCount(normalizedFollows.filter((item) => item.followerId === userId).length);
+
+      const saves =
+        (savesResponse as { data?: { listPostSaves?: { items?: Array<CloudSave | null> } } }).data?.listPostSaves
+          ?.items ?? [];
+      const normalizedSaves = saves.filter(
+        (item): item is CloudSave => Boolean(item?.id && item.postId),
+      );
+      setSavedCount(normalizedSaves.filter((item) => item.owner === authUser.username).length);
     } catch (error) {
       if (__DEV__) {
         console.log("[MyPage] failed to load profile:", error);
@@ -122,7 +180,7 @@ export default function MyPageScreen() {
 
   return (
     <ScreenContainer backgroundColor={theme.colors.surface}>
-      <Text style={styles.pageTitle}>ユーザーネーム（仮）</Text>
+      <Text style={styles.pageTitle}>@{name}</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -137,8 +195,16 @@ export default function MyPageScreen() {
             <Text style={styles.statLabel}>投稿</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>82</Text>
-            <Text style={styles.statLabel}>反応</Text>
+            <Text style={styles.statNumber}>{savedCount}</Text>
+            <Text style={styles.statLabel}>保存</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{followingCount}</Text>
+            <Text style={styles.statLabel}>フォロー</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statNumber}>{followersCount}</Text>
+            <Text style={styles.statLabel}>フォロワー</Text>
           </View>
         </View>
         <CustomButton

@@ -1,16 +1,15 @@
 import React from "react";
 import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { generateClient } from "aws-amplify/api";
+import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
-import { ScreenContainer } from "../../src/components/common";
-import { theme } from "../../src/theme";
 import { BackButton } from "../../src/components/common/BackButton";
+import { CustomButton, ScreenContainer } from "../../src/components/common";
+import { theme } from "../../src/theme";
 
 type CloudProfile = {
   id: string;
-  owner?: string | null;
   username?: string | null;
   bio?: string | null;
   iconImageKey?: string | null;
@@ -25,6 +24,12 @@ type CloudPost = {
   isArchived?: boolean | null;
 };
 
+type CloudFollow = {
+  id: string;
+  followerId: string;
+  followingId: string;
+};
+
 type RenderPost = {
   id: string;
   title: string;
@@ -36,19 +41,13 @@ const sanitizeProfileBio = (bio: string) =>
   bio
     .split(" / ")
     .map((part) => part.trim())
-    .filter(
-      (part) =>
-        part.length > 0 &&
-        !part.startsWith("年齢:") &&
-        !part.startsWith("年齢："),
-    )
+    .filter((part) => part.length > 0 && !part.startsWith("年齢:") && !part.startsWith("年齢："))
     .join(" / ");
 
 const getProfileQuery = /* GraphQL */ `
   query GetProfile($id: ID!) {
     getProfile(id: $id) {
       id
-      owner
       username
       bio
       iconImageKey
@@ -71,13 +70,49 @@ const listPostsQuery = /* GraphQL */ `
   }
 `;
 
+const listFollowsQuery = /* GraphQL */ `
+  query ListFollows {
+    listFollows(limit: 2000) {
+      items {
+        id
+        followerId
+        followingId
+      }
+    }
+  }
+`;
+
+const createFollowMutation = /* GraphQL */ `
+  mutation CreateFollow($input: CreateFollowInput!) {
+    createFollow(input: $input) {
+      id
+      followerId
+      followingId
+    }
+  }
+`;
+
+const deleteFollowMutation = /* GraphQL */ `
+  mutation DeleteFollow($input: DeleteFollowInput!) {
+    deleteFollow(input: $input) {
+      id
+    }
+  }
+`;
+
 export default function ProfileDetailScreen() {
+  const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const client = React.useMemo(() => generateClient(), []);
   const [isLoading, setIsLoading] = React.useState(true);
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
   const [posts, setPosts] = React.useState<RenderPost[]>([]);
+  const [currentUserId, setCurrentUserId] = React.useState("");
+  const [followersCount, setFollowersCount] = React.useState(0);
+  const [followingCount, setFollowingCount] = React.useState(0);
+  const [myFollowRecordId, setMyFollowRecordId] = React.useState<string | null>(null);
+  const [isFollowSubmitting, setIsFollowSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (!userId) {
@@ -89,18 +124,24 @@ export default function ProfileDetailScreen() {
       try {
         setIsLoading(true);
 
-        let loadedProfile: CloudProfile | null = null;
+        let me = "";
         try {
-          const profileResponse = await client.graphql({
-            query: getProfileQuery,
-            variables: { id: userId },
-          });
-          loadedProfile =
-            (profileResponse as { data?: { getProfile?: CloudProfile | null } })
-              .data?.getProfile ?? null;
+          const auth = await getCurrentUser();
+          me = auth.userId;
+          setCurrentUserId(me);
         } catch {
-          loadedProfile = null;
+          me = "";
+          setCurrentUserId("");
         }
+
+        const [profileResponse, postsResponse, followsResponse] = await Promise.all([
+          client.graphql({ query: getProfileQuery, variables: { id: userId } }),
+          client.graphql({ query: listPostsQuery }),
+          client.graphql({ query: listFollowsQuery }),
+        ]);
+
+        const loadedProfile =
+          (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
         setProfile(loadedProfile);
 
         if (loadedProfile?.iconImageKey) {
@@ -114,32 +155,23 @@ export default function ProfileDetailScreen() {
           setAvatarUrl(null);
         }
 
-        const postsResponse = await client.graphql({ query: listPostsQuery });
         const postItems =
-          (
-            postsResponse as {
-              data?: { listPosts?: { items?: Array<CloudPost | null> } };
-            }
-          ).data?.listPosts?.items ?? [];
+          (postsResponse as { data?: { listPosts?: { items?: Array<CloudPost | null> } } }).data?.listPosts?.items ?? [];
 
         const ownPosts = postItems
-          .filter((item): item is CloudPost =>
-            Boolean(item?.id && item.content),
-          )
+          .filter((item): item is CloudPost => Boolean(item?.id && item.content))
           .filter((item) => item.owner === userId)
           .filter((item) => item.isArchived !== true);
 
         const renderPosts = await Promise.all(
           ownPosts.map(async (item) => {
-            let image =
-              "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+            let image = "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
             if (item.imageKey) {
               try {
                 const resolved = await getUrl({ path: item.imageKey });
                 image = resolved.url.toString();
               } catch {
-                image =
-                  "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+                image = "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
               }
             }
             return {
@@ -150,8 +182,24 @@ export default function ProfileDetailScreen() {
             } satisfies RenderPost;
           }),
         );
-
         setPosts(renderPosts);
+
+        const followItems =
+          (followsResponse as { data?: { listFollows?: { items?: Array<CloudFollow | null> } } }).data?.listFollows
+            ?.items ?? [];
+        const normalizedFollows = followItems.filter(
+          (item): item is CloudFollow => Boolean(item?.id && item.followerId && item.followingId),
+        );
+
+        setFollowersCount(normalizedFollows.filter((item) => item.followingId === userId).length);
+        setFollowingCount(normalizedFollows.filter((item) => item.followerId === userId).length);
+
+        if (me) {
+          const mine = normalizedFollows.find((item) => item.followerId === me && item.followingId === userId);
+          setMyFollowRecordId(mine?.id ?? null);
+        } else {
+          setMyFollowRecordId(null);
+        }
       } catch (error) {
         console.error("[ProfileDetail] failed to load data:", error);
       } finally {
@@ -165,6 +213,37 @@ export default function ProfileDetailScreen() {
   const displayBio = profile?.bio
     ? sanitizeProfileBio(profile.bio)
     : "毎日コツコツ積み上げるのが目標です。開発と学習を継続中。";
+  const isOwnProfile = Boolean(currentUserId && userId && currentUserId === userId);
+
+  const onToggleFollow = React.useCallback(async () => {
+    if (!userId || !currentUserId || isOwnProfile || isFollowSubmitting) {
+      return;
+    }
+
+    try {
+      setIsFollowSubmitting(true);
+      if (myFollowRecordId) {
+        await client.graphql({ query: deleteFollowMutation, variables: { input: { id: myFollowRecordId } } });
+        setMyFollowRecordId(null);
+        setFollowersCount((prev) => Math.max(0, prev - 1));
+      } else {
+        const response = await client.graphql({
+          query: createFollowMutation,
+          variables: { input: { followerId: currentUserId, followingId: userId } },
+        });
+        const createdId =
+          (response as { data?: { createFollow?: { id?: string } } }).data?.createFollow?.id ?? null;
+        if (createdId) {
+          setMyFollowRecordId(createdId);
+          setFollowersCount((prev) => prev + 1);
+        }
+      }
+    } catch (error) {
+      console.error("[ProfileDetail] failed to toggle follow:", error);
+    } finally {
+      setIsFollowSubmitting(false);
+    }
+  }, [client, currentUserId, isFollowSubmitting, isOwnProfile, myFollowRecordId, userId]);
 
   if (isLoading) {
     return (
@@ -184,21 +263,35 @@ export default function ProfileDetailScreen() {
       </BackButton>
       <View style={styles.headerCard}>
         <View style={styles.avatarWrap}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatar} />
-          )}
+          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatar} /> : <View style={styles.avatar} />}
         </View>
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.bio}>{displayBio}</Text>
+
+        {!isOwnProfile ? (
+          <View style={styles.actionRow}>
+            <CustomButton
+              label={myFollowRecordId ? "フォロー解除" : "フォロー"}
+              onPress={() => void onToggleFollow()}
+              loading={isFollowSubmitting}
+              style={styles.actionButton}
+            />
+            <CustomButton
+              label="チャット"
+              variant="outline"
+              onPress={() => router.push(`/chat/${userId}`)}
+              style={styles.actionButton}
+            />
+          </View>
+        ) : null}
+
         <View style={styles.followRow}>
           <View style={styles.followItem}>
-            <Text style={styles.followValue}>82</Text>
+            <Text style={styles.followValue}>{followingCount}</Text>
             <Text style={styles.followLabel}>フォロー中</Text>
           </View>
           <View style={styles.followItem}>
-            <Text style={styles.followValue}>124</Text>
+            <Text style={styles.followValue}>{followersCount}</Text>
             <Text style={styles.followLabel}>フォロワー</Text>
           </View>
           <View style={styles.followItem}>
@@ -279,10 +372,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
-  badgesRow: {
-    flexDirection: "row",
-    gap: theme.spacing.xs,
+  actionRow: {
     marginTop: theme.spacing.sm,
+    width: "100%",
+    flexDirection: "row",
+    gap: theme.spacing.sm,
+  },
+  actionButton: {
+    flex: 1,
   },
   followRow: {
     flexDirection: "row",
@@ -302,22 +399,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
     marginTop: 2,
-  },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  badgeText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "700",
   },
   section: {
     ...theme.text.section,

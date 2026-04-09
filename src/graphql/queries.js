@@ -181,6 +181,152 @@ export const listPostSaves = /* GraphQL */ `
     }
   }
 `;
+export const getFollow = /* GraphQL */ `
+  query GetFollow($id: ID!) {
+    getFollow(id: $id) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const listFollows = /* GraphQL */ `
+  query ListFollows(
+    $filter: ModelFollowFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listFollows(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        followerId
+        followingId
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const getDirectMessage = /* GraphQL */ `
+  query GetDirectMessage($id: ID!) {
+    getDirectMessage(id: $id) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const listDirectMessages = /* GraphQL */ `
+  query ListDirectMessages(
+    $filter: ModelDirectMessageFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listDirectMessages(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        fromUserId
+        toUserId
+        body
+        storyId
+        storyCaption
+        readAt
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const getPostComment = /* GraphQL */ `
+  query GetPostComment($id: ID!) {
+    getPostComment(id: $id) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const listPostComments = /* GraphQL */ `
+  query ListPostComments(
+    $filter: ModelPostCommentFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listPostComments(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        postId
+        content
+        mentionHandles
+        mentionUserIds
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const getCommentLike = /* GraphQL */ `
+  query GetCommentLike($id: ID!) {
+    getCommentLike(id: $id) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const listCommentLikes = /* GraphQL */ `
+  query ListCommentLikes(
+    $filter: ModelCommentLikeFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listCommentLikes(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        commentId
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
 export const getGoal = /* GraphQL */ `
   query GetGoal($id: ID!) {
     getGoal(id: $id) {

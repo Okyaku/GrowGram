@@ -256,6 +256,213 @@ export const onDeletePostSave = /* GraphQL */ `
     }
   }
 `;
+export const onCreateFollow = /* GraphQL */ `
+  subscription OnCreateFollow(
+    $filter: ModelSubscriptionFollowFilterInput
+    $owner: String
+  ) {
+    onCreateFollow(filter: $filter, owner: $owner) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onUpdateFollow = /* GraphQL */ `
+  subscription OnUpdateFollow(
+    $filter: ModelSubscriptionFollowFilterInput
+    $owner: String
+  ) {
+    onUpdateFollow(filter: $filter, owner: $owner) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onDeleteFollow = /* GraphQL */ `
+  subscription OnDeleteFollow(
+    $filter: ModelSubscriptionFollowFilterInput
+    $owner: String
+  ) {
+    onDeleteFollow(filter: $filter, owner: $owner) {
+      id
+      followerId
+      followingId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onCreateDirectMessage = /* GraphQL */ `
+  subscription OnCreateDirectMessage(
+    $filter: ModelSubscriptionDirectMessageFilterInput
+    $owner: String
+  ) {
+    onCreateDirectMessage(filter: $filter, owner: $owner) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onUpdateDirectMessage = /* GraphQL */ `
+  subscription OnUpdateDirectMessage(
+    $filter: ModelSubscriptionDirectMessageFilterInput
+    $owner: String
+  ) {
+    onUpdateDirectMessage(filter: $filter, owner: $owner) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onDeleteDirectMessage = /* GraphQL */ `
+  subscription OnDeleteDirectMessage(
+    $filter: ModelSubscriptionDirectMessageFilterInput
+    $owner: String
+  ) {
+    onDeleteDirectMessage(filter: $filter, owner: $owner) {
+      id
+      fromUserId
+      toUserId
+      body
+      storyId
+      storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onCreatePostComment = /* GraphQL */ `
+  subscription OnCreatePostComment(
+    $filter: ModelSubscriptionPostCommentFilterInput
+    $owner: String
+  ) {
+    onCreatePostComment(filter: $filter, owner: $owner) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onUpdatePostComment = /* GraphQL */ `
+  subscription OnUpdatePostComment(
+    $filter: ModelSubscriptionPostCommentFilterInput
+    $owner: String
+  ) {
+    onUpdatePostComment(filter: $filter, owner: $owner) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onDeletePostComment = /* GraphQL */ `
+  subscription OnDeletePostComment(
+    $filter: ModelSubscriptionPostCommentFilterInput
+    $owner: String
+  ) {
+    onDeletePostComment(filter: $filter, owner: $owner) {
+      id
+      postId
+      content
+      mentionHandles
+      mentionUserIds
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onCreateCommentLike = /* GraphQL */ `
+  subscription OnCreateCommentLike(
+    $filter: ModelSubscriptionCommentLikeFilterInput
+    $owner: String
+  ) {
+    onCreateCommentLike(filter: $filter, owner: $owner) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onUpdateCommentLike = /* GraphQL */ `
+  subscription OnUpdateCommentLike(
+    $filter: ModelSubscriptionCommentLikeFilterInput
+    $owner: String
+  ) {
+    onUpdateCommentLike(filter: $filter, owner: $owner) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onDeleteCommentLike = /* GraphQL */ `
+  subscription OnDeleteCommentLike(
+    $filter: ModelSubscriptionCommentLikeFilterInput
+    $owner: String
+  ) {
+    onDeleteCommentLike(filter: $filter, owner: $owner) {
+      id
+      commentId
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
 export const onCreateGoal = /* GraphQL */ `
   subscription OnCreateGoal(
     $filter: ModelSubscriptionGoalFilterInput

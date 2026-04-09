@@ -58,6 +58,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="profile/[userId]" />
+        <Stack.Screen name="chat/[userId]" />
         <Stack.Screen name="story/[storyId]" />
         <Stack.Screen name="story-create" />
         <Stack.Screen name="post-create" />
