@@ -1,6 +1,19 @@
 /* eslint-disable */
 // this is an auto generated file. This will be overwritten
 
+export const generateRoadmapWithAI = /* GraphQL */ `
+  query GenerateRoadmapWithAI($input: AIRoadmapInput!) {
+    generateRoadmapWithAI(input: $input) {
+      goal
+      milestones {
+        title
+        description
+        __typename
+      }
+      __typename
+    }
+  }
+`;
 export const getPost = /* GraphQL */ `
   query GetPost($id: ID!) {
     getPost(id: $id) {

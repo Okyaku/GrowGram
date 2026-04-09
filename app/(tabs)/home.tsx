@@ -187,7 +187,6 @@ const listStoriesQuery = /* GraphQL */ `
         owner
         imageKey
         caption
-        isArchived
         createdAt
         updatedAt
       }

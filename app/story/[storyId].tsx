@@ -41,7 +41,6 @@ const getStoryQuery = /* GraphQL */ `
       owner
       imageKey
       caption
-      isArchived
       createdAt
       updatedAt
     }

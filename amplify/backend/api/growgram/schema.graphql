@@ -1,3 +1,5 @@
+# --- 既存の全モデル（提供された最新版を完全維持） ---
+
 type Post
   @model
   @auth(
@@ -160,9 +162,7 @@ type CommentLike
   updatedAt: AWSDateTime
 }
 
-type Goal
-  @model
-  @auth(rules: [{ allow: owner }]) {
+type Goal @model @auth(rules: [{ allow: owner }]) {
   id: ID!
   title: String!
   deadline: AWSDate
@@ -185,4 +185,36 @@ type Profile
   iconImageKey: String
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
+}
+
+# --- 追加：AIロードマップ生成用定義 ---
+
+input AIRoadmapInput {
+  goal: String!
+  deadline: String!
+  currentLevel: String!
+  weeklyHours: String!
+  deliverable: String!
+  learningStyle: String!
+  setbacks: String!
+}
+
+type AIRoadmapTask {
+  title: String!
+  description: String!
+}
+
+type AIRoadmapMilestone {
+  title: String!
+  description: String!
+  tasks: [AIRoadmapTask!]!
+}
+
+type AIRoadmapResult {
+  goal: String!
+  milestones: [AIRoadmapMilestone!]!
+}
+
+type Query {
+  generateRoadmapWithAI(input: AIRoadmapInput!): AIRoadmapResult
 }
