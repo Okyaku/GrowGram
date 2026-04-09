@@ -12,6 +12,7 @@ export const createPost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -34,6 +35,7 @@ export const updatePost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -56,6 +58,7 @@ export const deletePost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -356,6 +359,57 @@ export const deleteDirectMessage = /* GraphQL */ `
       body
       storyId
       storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const createReadReceipt = /* GraphQL */ `
+  mutation CreateReadReceipt(
+    $input: CreateReadReceiptInput!
+    $condition: ModelReadReceiptConditionInput
+  ) {
+    createReadReceipt(input: $input, condition: $condition) {
+      id
+      messageId
+      readerId
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const updateReadReceipt = /* GraphQL */ `
+  mutation UpdateReadReceipt(
+    $input: UpdateReadReceiptInput!
+    $condition: ModelReadReceiptConditionInput
+  ) {
+    updateReadReceipt(input: $input, condition: $condition) {
+      id
+      messageId
+      readerId
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const deleteReadReceipt = /* GraphQL */ `
+  mutation DeleteReadReceipt(
+    $input: DeleteReadReceiptInput!
+    $condition: ModelReadReceiptConditionInput
+  ) {
+    deleteReadReceipt(input: $input, condition: $condition) {
+      id
+      messageId
+      readerId
       readAt
       createdAt
       updatedAt
