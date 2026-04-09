@@ -1,9 +1,10 @@
 import React from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
+import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { theme } from "../../src/theme";
 
@@ -18,9 +19,17 @@ type CloudMessage = {
   createdAt?: string | null;
 };
 
+type CloudReceipt = {
+  id: string;
+  messageId: string;
+  readerId: string;
+  readAt?: string | null;
+};
+
 type CloudProfile = {
   id: string;
   username?: string | null;
+  iconImageKey?: string | null;
 };
 
 const listMessagesQuery = /* GraphQL */ `
@@ -55,10 +64,25 @@ const createMessageMutation = /* GraphQL */ `
   }
 `;
 
-const updateMessageMutation = /* GraphQL */ `
-  mutation UpdateDirectMessage($input: UpdateDirectMessageInput!) {
-    updateDirectMessage(input: $input) {
+const listReadReceiptsQuery = /* GraphQL */ `
+  query ListReadReceipts {
+    listReadReceipts(limit: 1000) {
+      items {
+        id
+        messageId
+        readerId
+        readAt
+      }
+    }
+  }
+`;
+
+const createReadReceiptMutation = /* GraphQL */ `
+  mutation CreateReadReceipt($input: CreateReadReceiptInput!) {
+    createReadReceipt(input: $input) {
       id
+      messageId
+      readerId
       readAt
     }
   }
@@ -69,6 +93,7 @@ const getProfileQuery = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      iconImageKey
     }
   }
 `;
@@ -79,6 +104,7 @@ export default function ChatScreen() {
   const { userId: partnerId } = useLocalSearchParams<{ userId: string }>();
   const [currentUserId, setCurrentUserId] = React.useState("");
   const [partnerName, setPartnerName] = React.useState("USER");
+  const [partnerAvatarUrl, setPartnerAvatarUrl] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<CloudMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -93,9 +119,10 @@ export default function ChatScreen() {
       const me = user.userId;
       setCurrentUserId(me);
 
-      const [messageResponse, profileResponse] = await Promise.all([
+      const [messageResponse, profileResponse, receiptResponse] = await Promise.all([
         client.graphql({ query: listMessagesQuery }),
         client.graphql({ query: getProfileQuery, variables: { id: partnerId } }),
+        client.graphql({ query: listReadReceiptsQuery }),
       ]);
 
       const items =
@@ -115,34 +142,66 @@ export default function ChatScreen() {
           return at - bt;
         });
 
+      const receiptItems =
+        (receiptResponse as { data?: { listReadReceipts?: { items?: Array<CloudReceipt | null> } } }).data
+          ?.listReadReceipts?.items ?? [];
+      const normalizedReceipts = receiptItems.filter(
+        (item): item is CloudReceipt => Boolean(item?.id && item.messageId && item.readerId),
+      );
+      const readByMeMessageIds = new Set(
+        normalizedReceipts
+          .filter((item) => item.readerId === me)
+          .map((item) => item.messageId),
+      );
+      const readByPartnerMessageIds = new Set(
+        normalizedReceipts
+          .filter((item) => item.readerId === partnerId)
+          .map((item) => item.messageId),
+      );
+
+      const messageWithReadState = normalized.map((item) => ({
+        ...item,
+        readAt:
+          item.fromUserId === me
+            ? item.readAt ?? (readByPartnerMessageIds.has(item.id) ? new Date().toISOString() : null)
+            : item.readAt,
+      }));
+
+      setMessages(messageWithReadState);
+
       const unreadIncoming = normalized.filter(
-        (item) => item.fromUserId === partnerId && item.toUserId === me && !item.readAt,
+        (item) => item.fromUserId === partnerId && item.toUserId === me && !readByMeMessageIds.has(item.id),
       );
       if (unreadIncoming.length > 0) {
         await Promise.all(
           unreadIncoming.map((message) =>
             client.graphql({
-              query: updateMessageMutation,
-              variables: { input: { id: message.id, readAt: new Date().toISOString() } },
+              query: createReadReceiptMutation,
+              variables: {
+                input: {
+                  messageId: message.id,
+                  readerId: me,
+                  readAt: new Date().toISOString(),
+                },
+              },
             }),
           ),
         );
       }
 
-      const messageWithReadState =
-        unreadIncoming.length > 0
-          ? normalized.map((item) =>
-              unreadIncoming.find((message) => message.id === item.id)
-                ? { ...item, readAt: new Date().toISOString() }
-                : item,
-            )
-          : normalized;
-
-      setMessages(messageWithReadState);
-
       const profile =
         (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
       setPartnerName(profile?.username || (partnerId.split("@")[0] || "USER").toUpperCase());
+      if (profile?.iconImageKey) {
+        try {
+          const resolved = await getUrl({ path: profile.iconImageKey });
+          setPartnerAvatarUrl(resolved.url.toString());
+        } catch {
+          setPartnerAvatarUrl(null);
+        }
+      } else {
+        setPartnerAvatarUrl(null);
+      }
     } catch (error) {
       console.error("[Chat] failed to load messages:", error);
     }
@@ -182,24 +241,46 @@ export default function ChatScreen() {
   }, [client, currentUserId, input, isSubmitting, loadChat, partnerId]);
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface}>
+    <ScreenContainer backgroundColor={theme.colors.surface} scrollable={false}>
       <View style={styles.headerRow}>
         <Pressable style={styles.iconButton} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
         </Pressable>
-        <Text style={styles.title}>{partnerName}</Text>
+        <Pressable style={styles.titleWrap} onPress={() => router.push(`/profile/${partnerId}`)}>
+          {partnerAvatarUrl ? (
+            <Image source={{ uri: partnerAvatarUrl }} style={styles.partnerAvatar} />
+          ) : (
+            <View style={styles.partnerAvatarPlaceholder}>
+              <Ionicons name="person" size={16} color={theme.colors.textSub} />
+            </View>
+          )}
+          <View>
+            <Text style={styles.title}>{partnerName}</Text>
+            <Text style={styles.subtitle}>DM</Text>
+          </View>
+        </Pressable>
         <View style={styles.iconDummy} />
       </View>
 
       <FlatList
         data={messages}
         keyExtractor={(item) => item.id}
+        style={styles.list}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => {
           const mine = item.fromUserId === currentUserId;
           const readLabel = mine ? (item.readAt ? "既読" : "未読") : "";
           return (
             <View style={[styles.messageRow, mine ? styles.messageRowMine : styles.messageRowOther]}>
+              {!mine ? (
+                <View style={styles.incomingAvatarWrap}>
+                  {partnerAvatarUrl ? (
+                    <Image source={{ uri: partnerAvatarUrl }} style={styles.incomingAvatar} />
+                  ) : (
+                    <View style={styles.incomingAvatarPlaceholder} />
+                  )}
+                </View>
+              ) : null}
               <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
                 {item.storyId ? (
                   <Pressable
@@ -251,6 +332,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: theme.spacing.sm,
   },
+  titleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+    justifyContent: "center",
+  },
   iconButton: {
     width: 40,
     height: 40,
@@ -267,12 +355,37 @@ const styles = StyleSheet.create({
   },
   title: {
     color: theme.colors.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "900",
+  },
+  subtitle: {
+    color: theme.colors.textSub,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  partnerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.surface,
+  },
+  partnerAvatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   listContent: {
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xs,
+  },
+  list: {
+    flex: 1,
   },
   messageRow: {
     width: "100%",
@@ -283,6 +396,24 @@ const styles = StyleSheet.create({
   },
   messageRowOther: {
     justifyContent: "flex-start",
+  },
+  incomingAvatarWrap: {
+    marginRight: 8,
+    alignSelf: "flex-end",
+  },
+  incomingAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+  },
+  incomingAvatarPlaceholder: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   bubble: {
     maxWidth: "76%",

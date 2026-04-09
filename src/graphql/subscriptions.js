@@ -12,6 +12,7 @@ export const onCreatePost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -34,6 +35,7 @@ export const onUpdatePost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -56,6 +58,7 @@ export const onDeletePost = /* GraphQL */ `
       title
       tags
       imageKey
+      imageKeys
       isArchived
       passion
       logic
@@ -356,6 +359,57 @@ export const onDeleteDirectMessage = /* GraphQL */ `
       body
       storyId
       storyCaption
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onCreateReadReceipt = /* GraphQL */ `
+  subscription OnCreateReadReceipt(
+    $filter: ModelSubscriptionReadReceiptFilterInput
+    $owner: String
+  ) {
+    onCreateReadReceipt(filter: $filter, owner: $owner) {
+      id
+      messageId
+      readerId
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onUpdateReadReceipt = /* GraphQL */ `
+  subscription OnUpdateReadReceipt(
+    $filter: ModelSubscriptionReadReceiptFilterInput
+    $owner: String
+  ) {
+    onUpdateReadReceipt(filter: $filter, owner: $owner) {
+      id
+      messageId
+      readerId
+      readAt
+      createdAt
+      updatedAt
+      owner
+      __typename
+    }
+  }
+`;
+export const onDeleteReadReceipt = /* GraphQL */ `
+  subscription OnDeleteReadReceipt(
+    $filter: ModelSubscriptionReadReceiptFilterInput
+    $owner: String
+  ) {
+    onDeleteReadReceipt(filter: $filter, owner: $owner) {
+      id
+      messageId
+      readerId
       readAt
       createdAt
       updatedAt

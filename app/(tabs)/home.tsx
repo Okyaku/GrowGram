@@ -2,11 +2,13 @@ import React from "react";
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -16,6 +18,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
 import { useRoadmap } from "../../src/store/roadmap-context";
+import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 type CloudPost = {
@@ -26,6 +29,7 @@ type CloudPost = {
   title?: string | null;
   tags?: string[] | null;
   imageKey?: string | null;
+  imageKeys?: string[] | null;
   isArchived?: boolean | null;
   passion?: number | null;
   logic?: number | null;
@@ -45,6 +49,14 @@ type CloudStory = {
   imageKey: string;
   caption?: string | null;
   createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type CloudStoryReaction = {
+  id: string;
+  owner?: string | null;
+  storyId: string;
+  reactionType?: string | null;
 };
 
 type CloudLike = {
@@ -76,6 +88,20 @@ type CloudCommentLike = {
   owner?: string | null;
 };
 
+type CloudDirectMessage = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  body: string;
+  createdAt?: string | null;
+};
+
+type CloudReadReceipt = {
+  id: string;
+  messageId: string;
+  readerId: string;
+};
+
 type FeedComment = {
   id: string;
   postId: string;
@@ -95,10 +121,13 @@ type FeedPost = {
   userAvatar?: string;
   title: string;
   image: string;
+  imageUrls: string[];
+  imageCount: number;
   log: string;
   tags: string[];
   createdAt: string;
   imageKey?: string;
+  imageKeys?: string[];
   passionCount: number;
   logicCount: number;
   routineCount: number;
@@ -127,6 +156,7 @@ const listPostsQuery = /* GraphQL */ `
         title
         tags
         imageKey
+        imageKeys
         isArchived
         passion
         logic
@@ -157,7 +187,22 @@ const listStoriesQuery = /* GraphQL */ `
         owner
         imageKey
         caption
+        isArchived
         createdAt
+        updatedAt
+      }
+    }
+  }
+`;
+
+const listStoryReactionsQuery = /* GraphQL */ `
+  query ListStoryReactions {
+    listStoryReactions(limit: 1000) {
+      items {
+        id
+        owner
+        storyId
+        reactionType
       }
     }
   }
@@ -183,6 +228,32 @@ const listPostSavesQuery = /* GraphQL */ `
         id
         owner
         postId
+      }
+    }
+  }
+`;
+
+const listDirectMessagesQuery = /* GraphQL */ `
+  query ListDirectMessages {
+    listDirectMessages(limit: 2000) {
+      items {
+        id
+        fromUserId
+        toUserId
+        body
+        createdAt
+      }
+    }
+  }
+`;
+
+const listReadReceiptsQuery = /* GraphQL */ `
+  query ListReadReceipts {
+    listReadReceipts(limit: 2000) {
+      items {
+        id
+        messageId
+        readerId
       }
     }
   }
@@ -314,6 +385,9 @@ const fallbackPosts: FeedPost[] = [
     title: "WELCOME",
     image:
       "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
+    imageUrls: [
+      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
+    ],
     log: "最初の投稿を作成するとここに表示されます。",
     tags: ["#welcome"],
     createdAt: "1970-01-01T00:00:00.000Z",
@@ -322,24 +396,39 @@ const fallbackPosts: FeedPost[] = [
     routineCount: 0,
     likeCount: 0,
     saveCount: 0,
+    imageCount: 0,
   },
 ];
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
+  const cardImageWidth = Math.max(220, screenWidth - 64);
   const client = React.useMemo(() => generateClient(), []);
+  const { registerScrollToTop } = useTabScrollTop();
+  const scrollViewRef = React.useRef<ScrollView | null>(null);
   const {
     canCreatePost,
     postCredits,
     streakDays,
     level,
     totalScore,
-    recordDailyActivity,
     adjustScore,
   } = useRoadmap();
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
+   const [currentUserId, setCurrentUserId] = React.useState("");
+   const [unreadChatCount, setUnreadChatCount] = React.useState(0);
+  const [reactionBonusScore, setReactionBonusScore] = React.useState(0);
+  const [imageViewerState, setImageViewerState] = React.useState<{
+    images: string[];
+    initialIndex: number;
+  } | null>(null);
+  const [visibleImageIndexByPost, setVisibleImageIndexByPost] = React.useState<
+    Record<string, number>
+  >({});
+  const [viewerImageIndex, setViewerImageIndex] = React.useState(0);
   const [reactionKeys, setReactionKeys] = React.useState<Set<string>>(
     new Set(),
   );
@@ -380,13 +469,34 @@ export default function HomeScreen() {
   const loadFeed = React.useCallback(async () => {
     try {
       let owner = "";
+      let me = "";
       try {
         const user = await getCurrentUser();
         owner = user.username;
+        me = user.userId;
+        setCurrentUserId(me);
       } catch {
         owner = "";
+        me = "";
+        setCurrentUserId("");
       }
       setCurrentOwner(owner);
+
+      const isOwnedByMe = (recordOwner?: string | null) => {
+        if (!recordOwner) {
+          return false;
+        }
+        if (owner && recordOwner === owner) {
+          return true;
+        }
+        if (me && recordOwner === me) {
+          return true;
+        }
+        if (owner && recordOwner.endsWith(`::${owner}`)) {
+          return true;
+        }
+        return false;
+      };
 
       const [
         postsResponse,
@@ -394,16 +504,22 @@ export default function HomeScreen() {
         likesResponse,
         savesResponse,
         storiesResponse,
+        storyReactionsResponse,
         commentsResponse,
         commentLikesResponse,
+        directMessagesResponse,
+        receiptsResponse,
       ] = await Promise.all([
         client.graphql({ query: listPostsQuery }),
         client.graphql({ query: listProfilesQuery }),
         client.graphql({ query: listPostLikesQuery }),
         client.graphql({ query: listPostSavesQuery }),
         client.graphql({ query: listStoriesQuery }),
+        client.graphql({ query: listStoryReactionsQuery }),
         client.graphql({ query: listPostCommentsQuery }),
         client.graphql({ query: listCommentLikesQuery }),
+        client.graphql({ query: listDirectMessagesQuery }),
+        client.graphql({ query: listReadReceiptsQuery }),
       ]);
 
       const postItems =
@@ -436,6 +552,12 @@ export default function HomeScreen() {
             data?: { listStories?: { items?: Array<CloudStory | null> } };
           }
         ).data?.listStories?.items ?? [];
+      const storyReactionItems =
+        (
+          storyReactionsResponse as {
+            data?: { listStoryReactions?: { items?: Array<CloudStoryReaction | null> } };
+          }
+        ).data?.listStoryReactions?.items ?? [];
       const commentItems =
         (
           commentsResponse as {
@@ -448,6 +570,18 @@ export default function HomeScreen() {
             data?: { listCommentLikes?: { items?: Array<CloudCommentLike | null> } };
           }
         ).data?.listCommentLikes?.items ?? [];
+      const directMessageItems =
+        (
+          directMessagesResponse as {
+            data?: { listDirectMessages?: { items?: Array<CloudDirectMessage | null> } };
+          }
+        ).data?.listDirectMessages?.items ?? [];
+      const readReceiptItems =
+        (
+          receiptsResponse as {
+            data?: { listReadReceipts?: { items?: Array<CloudReadReceipt | null> } };
+          }
+        ).data?.listReadReceipts?.items ?? [];
 
       const profileWithAvatar = await Promise.all(
         profileItems
@@ -502,7 +636,7 @@ export default function HomeScreen() {
               (routineCountByPost[item.postId] ?? 0) + 1;
           }
 
-          if (owner && item.owner === owner) {
+          if (isOwnedByMe(item.owner)) {
             const key = `${item.postId}:${reactionType ?? ""}`;
             myReactionKeys.add(key);
             myReactionRecordIds[key] = item.id;
@@ -517,7 +651,7 @@ export default function HomeScreen() {
         .forEach((item) => {
           saveCountByPost[item.postId] =
             (saveCountByPost[item.postId] ?? 0) + 1;
-          if (owner && item.owner === owner) {
+          if (isOwnedByMe(item.owner)) {
             mySavedIds.add(item.postId);
             mySaveRecordIds[item.postId] = item.id;
           }
@@ -528,6 +662,54 @@ export default function HomeScreen() {
       setReactionRecordIdByKey(myReactionRecordIds);
       setSaveRecordIdByPost(mySaveRecordIds);
 
+      const myPostIds = new Set(
+        postItems
+          .filter((item): item is CloudPost => Boolean(item?.id && item.owner))
+          .filter((item) => item.owner === owner)
+          .map((item) => item.id),
+      );
+      const myStoryIds = new Set(
+        storyItems
+          .filter((item): item is CloudStory => Boolean(item?.id && item.owner))
+          .filter((item) => item.owner === owner)
+          .filter((item) => {
+            // createdAt から 24 時間以内のストーリーを確認
+            if (item.createdAt) {
+              const now = new Date();
+              const createdAt = new Date(item.createdAt);
+              const ageHours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+              return ageHours < 24;
+            }
+            return true;
+          })
+          .map((item) => item.id),
+      );
+      const nextReactionBonusScore =
+        likeItems.filter(
+          (item): item is CloudLike =>
+            Boolean(item?.id && item.postId && item.owner && item.reactionType),
+        ).filter((item) => myPostIds.has(item.postId) && item.owner !== owner).length * 30 +
+        storyReactionItems.filter(
+          (item): item is CloudStoryReaction =>
+            Boolean(item?.id && item.storyId && item.owner && item.reactionType),
+        ).filter((item) => myStoryIds.has(item.storyId) && item.owner !== owner).length * 30;
+
+      if (nextReactionBonusScore !== reactionBonusScore) {
+        adjustScore(nextReactionBonusScore - reactionBonusScore);
+        setReactionBonusScore(nextReactionBonusScore);
+      }
+
+      const readMessageIds = new Set(
+        readReceiptItems
+          .filter((item): item is CloudReadReceipt => Boolean(item?.id && item.messageId && item.readerId))
+          .filter((item) => item.readerId === me)
+          .map((item) => item.messageId),
+      );
+      const unreadIncomingCount = directMessageItems.filter(
+        (item): item is CloudDirectMessage => Boolean(item?.id && item.body && item.fromUserId && item.toUserId),
+      ).filter((item) => item.toUserId === me && !readMessageIds.has(item.id)).length;
+      setUnreadChatCount(unreadIncomingCount);
+
       const commentLikeCountByComment: Record<string, number> = {};
       const myCommentLikeRecordIds: Record<string, string> = {};
       commentLikeItems
@@ -535,7 +717,7 @@ export default function HomeScreen() {
         .forEach((item) => {
           commentLikeCountByComment[item.commentId] =
             (commentLikeCountByComment[item.commentId] ?? 0) + 1;
-          if (owner && item.owner === owner) {
+          if (isOwnedByMe(item.owner)) {
             myCommentLikeRecordIds[item.commentId] = item.id;
           }
         });
@@ -586,10 +768,15 @@ export default function HomeScreen() {
             title: item.title ?? "USER POST",
             image:
               "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
+            imageUrls: [
+              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
+            ],
             log: item.content,
             tags: item.tags ?? [],
             createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
-            imageKey: item.imageKey ?? undefined,
+            imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
+            imageKeys: item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
+            imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
             passionCount: passionCountByPost[item.id] ?? 0,
             logicCount: logicCountByPost[item.id] ?? 0,
             routineCount: routineCountByPost[item.id] ?? 0,
@@ -604,12 +791,22 @@ export default function HomeScreen() {
 
       const postsWithImage = await Promise.all(
         normalizedPosts.map(async (post) => {
-          if (!post.imageKey) {
+          if (!post.imageKeys || post.imageKeys.length === 0) {
             return post;
           }
           try {
-            const resolved = await getUrl({ path: post.imageKey });
-            return { ...post, image: resolved.url.toString() };
+            const urls = await Promise.all(
+              post.imageKeys.map(async (key) => {
+                const resolved = await getUrl({ path: key });
+                return resolved.url.toString();
+              }),
+            );
+            return {
+              ...post,
+              image: urls[0] ?? post.image,
+              imageUrls: urls.length > 0 ? urls : post.imageUrls,
+              imageCount: urls.length > 0 ? urls.length : post.imageCount,
+            };
           } catch {
             return post;
           }
@@ -684,13 +881,29 @@ export default function HomeScreen() {
     } catch (error) {
       console.error("[Home] failed to fetch feed:", error);
     }
-  }, [client]);
+  }, [adjustScore, client, reactionBonusScore]);
 
   useFocusEffect(
     React.useCallback(() => {
       void loadFeed();
     }, [loadFeed]),
   );
+
+  const isUnauthorizedGraphQLError = React.useCallback((error: unknown) => {
+    const serialized = JSON.stringify(error);
+    if (serialized.includes("Not Authorized") || serialized.includes("Unauthorized")) {
+      return true;
+    }
+
+    if (typeof error === "object" && error !== null && "message" in error) {
+      const message = String((error as { message?: unknown }).message ?? "");
+      if (message.includes("Not Authorized") || message.includes("Unauthorized")) {
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
 
   const toggleReaction = React.useCallback(
     async (postId: string, reactionType: ReactionType) => {
@@ -702,22 +915,23 @@ export default function HomeScreen() {
             query: deletePostLikeMutation,
             variables: { input: { id: existingId } },
           });
-          adjustScore(-30);
         } else {
           await client.graphql({
             query: createPostLikeMutation,
             variables: { input: { postId, reactionType } },
           });
-          recordDailyActivity("action");
-          adjustScore(30);
         }
         await loadFeed();
       } catch (error) {
+        if (isUnauthorizedGraphQLError(error)) {
+          await loadFeed();
+          return;
+        }
         console.error("[Home] failed to toggle reaction:", error);
         Alert.alert("失敗", "リアクション更新に失敗しました。");
       }
     },
-    [adjustScore, client, loadFeed, reactionRecordIdByKey, recordDailyActivity],
+    [client, isUnauthorizedGraphQLError, loadFeed, reactionRecordIdByKey],
   );
 
   const clearTapState = React.useCallback((postId: string) => {
@@ -779,7 +993,7 @@ export default function HomeScreen() {
   );
 
   const onPostTap = React.useCallback(
-    (postId: string) => {
+    (postId: string, images: string[], initialIndex: number) => {
       const current = tapCountRef.current[postId] ?? { count: 0 };
       if (current.timer) {
         clearTimeout(current.timer);
@@ -799,6 +1013,15 @@ export default function HomeScreen() {
         if (count === 2) {
           showGestureFeedback(postId, "logic");
           void toggleReaction(postId, "logic");
+          return;
+        }
+
+        if (count === 1) {
+          setViewerImageIndex(initialIndex);
+          setImageViewerState({
+            images,
+            initialIndex,
+          });
         }
       }, 280);
 
@@ -806,6 +1029,23 @@ export default function HomeScreen() {
     },
     [showGestureFeedback, toggleReaction],
   );
+
+  React.useEffect(() => {
+    if (imageViewerState) {
+      setViewerImageIndex(imageViewerState.initialIndex);
+      return;
+    }
+
+    setViewerImageIndex(0);
+  }, [imageViewerState]);
+
+  React.useEffect(() => {
+    registerScrollToTop("home", () => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => registerScrollToTop("home", null);
+  }, [registerScrollToTop]);
 
   React.useEffect(() => {
     return () => {
@@ -909,6 +1149,7 @@ export default function HomeScreen() {
               title: post.title ? `REPOST: ${post.title}` : "REPOST",
               tags: Array.from(new Set([...(post.tags ?? []), "#repost"])),
               imageKey: post.imageKey,
+              imageKeys: post.imageKeys,
             },
           },
         });
@@ -977,11 +1218,15 @@ export default function HomeScreen() {
         }
         await loadFeed();
       } catch (error) {
+        if (isUnauthorizedGraphQLError(error)) {
+          await loadFeed();
+          return;
+        }
         console.error("[Home] failed to toggle comment like:", error);
         Alert.alert("失敗", "コメントいいね更新に失敗しました。");
       }
     },
-    [client, commentLikeRecordIdByComment, loadFeed],
+    [client, commentLikeRecordIdByComment, isUnauthorizedGraphQLError, loadFeed],
   );
 
   const renderCommentContent = React.useCallback(
@@ -1014,13 +1259,25 @@ export default function HomeScreen() {
   );
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface}>
+    <ScreenContainer backgroundColor={theme.colors.surface} scrollViewRef={scrollViewRef}>
       <View style={styles.headerRow}>
         <View style={styles.brandRow}>
           <Ionicons name="flash" size={22} color={theme.colors.primary} />
           <Text style={styles.heading}>GROWGRAM</Text>
         </View>
-        <Ionicons name="notifications" size={20} color={theme.colors.textSub} />
+        <View style={styles.headerActions}>
+          <Pressable style={styles.headerIconButton} onPress={() => router.push('/chat')}>
+            <Ionicons name="chatbubble-ellipses" size={18} color={theme.colors.text} />
+            {unreadChatCount > 0 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadChatCount > 9 ? '9+' : unreadChatCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable style={styles.headerIconButton} onPress={() => router.push('/notifications')}>
+            <Ionicons name="notifications" size={18} color={theme.colors.textSub} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.statsRow}>
@@ -1109,12 +1366,47 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.day}>{post.title}</Text>
-            <Pressable
-              onLongPress={() => onPostLongPress(post.id)}
-              onPress={() => onPostTap(post.id)}
-              style={styles.imagePressable}
-            >
-              <Image source={{ uri: post.image }} style={styles.image} />
+            <View style={styles.imagePressable}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => {
+                  const pageIndex = Math.round(event.nativeEvent.contentOffset.x / cardImageWidth);
+                  setVisibleImageIndexByPost((prev) => ({ ...prev, [post.id]: pageIndex }));
+                }}
+                style={styles.imageCarousel}
+              >
+                {(post.imageUrls.length > 0 ? post.imageUrls : [post.image]).map((uri, index) => (
+                  <Pressable
+                    key={`${post.id}-${index}-${uri}`}
+                    onLongPress={() => onPostLongPress(post.id)}
+                    onPress={() =>
+                      onPostTap(
+                        post.id,
+                        post.imageUrls.length > 0 ? post.imageUrls : [post.image],
+                        index,
+                      )
+                    }
+                    style={[styles.imageSlide, { width: cardImageWidth }]}
+                  >
+                    <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+                  </Pressable>
+                ))}
+              </ScrollView>
+              <View style={styles.imageDotsRow}>
+                {(post.imageUrls.length > 0 ? post.imageUrls : [post.image]).map((_, index) => {
+                  const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
+                  const isActive = currentIndex === index;
+                  return <View key={`${post.id}-dot-${index}`} style={[styles.imageDot, isActive && styles.imageDotActive]} />;
+                })}
+              </View>
+              {post.imageCount > 1 ? (
+                <View style={styles.multipleBadge}>
+                  <Ionicons name="albums" size={12} color={theme.colors.onPrimary} />
+                  <Text style={styles.multipleBadgeText}>{post.imageCount}</Text>
+                </View>
+              ) : null}
               {gestureFeedback?.postId === post.id ? (
                 <View
                   style={[
@@ -1135,7 +1427,7 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               ) : null}
-            </Pressable>
+            </View>
             <Text style={styles.gestureHint}>
               長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
             </Text>
@@ -1152,15 +1444,33 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.scoreRow}>
-              <View style={styles.scoreItem}>
+              <Pressable
+                style={styles.scoreItem}
+                onPress={() => {
+                  showGestureFeedback(post.id, "passion");
+                  void toggleReaction(post.id, "passion");
+                }}
+              >
                 <Ionicons name="flame" size={14} color={theme.colors.primary} />
                 <Text style={styles.scoreLabel}>情熱 {post.passionCount}</Text>
-              </View>
-              <View style={styles.scoreItem}>
+              </Pressable>
+              <Pressable
+                style={styles.scoreItem}
+                onPress={() => {
+                  showGestureFeedback(post.id, "logic");
+                  void toggleReaction(post.id, "logic");
+                }}
+              >
                 <Ionicons name="bulb" size={14} color={theme.colors.primary} />
                 <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
-              </View>
-              <View style={styles.scoreItem}>
+              </Pressable>
+              <Pressable
+                style={styles.scoreItem}
+                onPress={() => {
+                  showGestureFeedback(post.id, "routine");
+                  void toggleReaction(post.id, "routine");
+                }}
+              >
                 <Ionicons
                   name="ribbon"
                   size={14}
@@ -1169,23 +1479,25 @@ export default function HomeScreen() {
                 <Text style={styles.scoreLabel}>
                   一貫性 {post.routineCount}
                 </Text>
-              </View>
+              </Pressable>
             </View>
 
             <View style={styles.postActions}>
-              <Pressable
-                style={styles.postActionItem}
-                onPress={() => void toggleSave(post.id)}
-              >
-                <Ionicons
-                  name={
-                    savedPostIds.has(post.id) ? "bookmark" : "bookmark-outline"
-                  }
-                  size={16}
-                  color={theme.colors.textSub}
-                />
-                <Text style={styles.postActionText}>保存 {post.saveCount}</Text>
-              </Pressable>
+              {!isOwner && (
+                <Pressable
+                  style={styles.postActionItem}
+                  onPress={() => void toggleSave(post.id)}
+                >
+                  <Ionicons
+                    name={
+                      savedPostIds.has(post.id) ? "bookmark" : "bookmark-outline"
+                    }
+                    size={16}
+                    color={theme.colors.textSub}
+                  />
+                  <Text style={styles.postActionText}>保存 {post.saveCount}</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={styles.postActionItem}
                 onPress={() => void onRepost(post)}
@@ -1294,6 +1606,64 @@ export default function HomeScreen() {
           </View>
         );
       })}
+
+      <Modal
+        visible={Boolean(imageViewerState)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setImageViewerState(null)}
+      >
+        <View style={styles.viewerOverlay}>
+          <Pressable
+            style={styles.viewerCloseButton}
+            onPress={() => setImageViewerState(null)}
+          >
+            <Ionicons name="close" size={28} color={theme.colors.onPrimary} />
+          </Pressable>
+
+          {imageViewerState ? (
+            <>
+              <ScrollView
+                key={`${imageViewerState.images.length}:${imageViewerState.initialIndex}`}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                contentOffset={{ x: screenWidth * imageViewerState.initialIndex, y: 0 }}
+                onMomentumScrollEnd={(event) => {
+                  const pageIndex = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                  setViewerImageIndex(pageIndex);
+                }}
+                style={styles.viewerCarousel}
+              >
+                {imageViewerState.images.map((uri, index) => (
+                  <View key={`${uri}-${index}`} style={[styles.viewerSlide, { width: screenWidth }]}>
+                    <Image
+                      source={{ uri }}
+                      style={styles.viewerImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+
+              {imageViewerState.images.length > 1 ? (
+                <View style={styles.viewerDotsRow}>
+                  {imageViewerState.images.map((_, index) => {
+                    const isActive = viewerImageIndex === index;
+                    return <View key={`viewer-dot-${index}`} style={[styles.imageDot, styles.viewerDot, isActive && styles.imageDotActive]} />;
+                  })}
+                </View>
+              ) : null}
+
+              <Text style={styles.viewerHint}>
+                {imageViewerState.images.length > 1
+                  ? `${viewerImageIndex + 1} / ${imageViewerState.images.length}  左右にスワイプして全体を確認できます`
+                  : "全体表示"}
+              </Text>
+            </>
+          ) : null}
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -1314,6 +1684,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    position: "relative",
+  },
+  badge: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: theme.colors.white,
+    fontSize: 10,
+    fontWeight: "900",
   },
   statsRow: {
     flexDirection: "row",
@@ -1436,6 +1839,45 @@ const styles = StyleSheet.create({
   imagePressable: {
     position: "relative",
   },
+  imageCarousel: {
+    width: "100%",
+  },
+  imageSlide: {
+    maxWidth: "100%",
+  },
+  imageDotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  imageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(0,0,0,0.18)",
+  },
+  imageDotActive: {
+    width: 18,
+    backgroundColor: theme.colors.primary,
+  },
+  multipleBadge: {
+    position: "absolute",
+    right: 10,
+    top: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  multipleBadgeText: {
+    color: theme.colors.onPrimary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
   gesturePopup: {
     position: "absolute",
     alignSelf: "center",
@@ -1481,13 +1923,15 @@ const styles = StyleSheet.create({
   },
   scoreRow: {
     marginTop: theme.spacing.sm,
-    flexDirection: "column",
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 8,
   },
   scoreItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+    flex: 1,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -1623,5 +2067,45 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontSize: 13,
     fontWeight: "800",
+  },
+  viewerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    justifyContent: "center",
+  },
+  viewerCloseButton: {
+    position: "absolute",
+    top: 56,
+    right: 20,
+    zIndex: 10,
+  },
+  viewerCarousel: {
+    flexGrow: 0,
+  },
+  viewerDotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  viewerDot: {
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  viewerSlide: {
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  viewerImage: {
+    width: "100%",
+    height: "82%",
+  },
+  viewerHint: {
+    textAlign: "center",
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 36,
   },
 });

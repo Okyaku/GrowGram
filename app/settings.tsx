@@ -23,6 +23,11 @@ const settingMenus = [
     route: "/legal" as const,
     icon: "shield-checkmark" as const,
   },
+  {
+    label: "保存・アーカイブ",
+    route: "/saved-archived-posts" as const,
+    icon: "bookmark" as const,
+  },
 ];
 
 export default function SettingsScreen() {

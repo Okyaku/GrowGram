@@ -11,6 +11,7 @@ type Post
   title: String
   tags: [String]
   imageKey: String
+  imageKeys: [String]
   isArchived: Boolean
   passion: Int
   logic: Int
@@ -107,6 +108,22 @@ type DirectMessage
   body: String!
   storyId: ID
   storyCaption: String
+  readAt: AWSDateTime
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ReadReceipt
+  @model
+  @auth(
+    rules: [
+      { allow: owner, operations: [create, read, update, delete] }
+      { allow: private, operations: [read] }
+    ]
+  ) {
+  id: ID!
+  messageId: ID!
+  readerId: ID!
   readAt: AWSDateTime
   createdAt: AWSDateTime
   updatedAt: AWSDateTime

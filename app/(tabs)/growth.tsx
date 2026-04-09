@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
@@ -9,6 +9,7 @@ import {
   ScreenContainer,
 } from "../../src/components/common";
 import { useRoadmap } from "../../src/store/roadmap-context";
+import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 type GoalItem = {
@@ -51,12 +52,22 @@ const skills = [
 export default function GrowthScreen() {
   const router = useRouter();
   const client = React.useMemo(() => generateClient(), []);
+  const { registerScrollToTop } = useTabScrollTop();
+  const scrollViewRef = React.useRef<ScrollView | null>(null);
   const { activeRoadmap, streakDays, level, totalScore, activityByDate } =
     useRoadmap();
   const [goals, setGoals] = React.useState<GoalItem[]>([]);
   const [goalTitle, setGoalTitle] = React.useState("");
   const [goalDeadline, setGoalDeadline] = React.useState("");
   const [isSavingGoal, setIsSavingGoal] = React.useState(false);
+
+  React.useEffect(() => {
+    registerScrollToTop("growth", () => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return () => registerScrollToTop("growth", null);
+  }, [registerScrollToTop]);
 
   const badges = React.useMemo(
     () => [
@@ -174,7 +185,7 @@ export default function GrowthScreen() {
   }, [goalDeadline, goalTitle]);
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface}>
+    <ScreenContainer backgroundColor={theme.colors.surface} scrollViewRef={scrollViewRef}>
       <Text style={styles.title}>成長ログ</Text>
 
       <View style={styles.objectiveCard}>
