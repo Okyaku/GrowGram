@@ -1,11 +1,12 @@
 import React from "react";
-import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { BackButton } from "../../src/components/common/BackButton";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
+import { Text } from "../../src/components/common/Typography";
 import { theme } from "../../src/theme";
 
 type CloudProfile = {
@@ -41,7 +42,12 @@ const sanitizeProfileBio = (bio: string) =>
   bio
     .split(" / ")
     .map((part) => part.trim())
-    .filter((part) => part.length > 0 && !part.startsWith("年齢:") && !part.startsWith("年齢："))
+    .filter(
+      (part) =>
+        part.length > 0 &&
+        !part.startsWith("年齢:") &&
+        !part.startsWith("年齢："),
+    )
     .join(" / ");
 
 const getProfileQuery = /* GraphQL */ `
@@ -101,9 +107,13 @@ const deleteFollowMutation = /* GraphQL */ `
 `;
 
 export default function ProfileDetailScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
-  const client = React.useMemo(() => generateClient(), []);
+  const client = React.useMemo(
+    () => generateClient({ authMode: "userPool" }),
+    [],
+  );
   const [isLoading, setIsLoading] = React.useState(true);
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
@@ -111,7 +121,9 @@ export default function ProfileDetailScreen() {
   const [currentUserId, setCurrentUserId] = React.useState("");
   const [followersCount, setFollowersCount] = React.useState(0);
   const [followingCount, setFollowingCount] = React.useState(0);
-  const [myFollowRecordId, setMyFollowRecordId] = React.useState<string | null>(null);
+  const [myFollowRecordId, setMyFollowRecordId] = React.useState<string | null>(
+    null,
+  );
   const [isFollowSubmitting, setIsFollowSubmitting] = React.useState(false);
 
   React.useEffect(() => {
@@ -134,14 +146,19 @@ export default function ProfileDetailScreen() {
           setCurrentUserId("");
         }
 
-        const [profileResponse, postsResponse, followsResponse] = await Promise.all([
-          client.graphql({ query: getProfileQuery, variables: { id: userId } }),
-          client.graphql({ query: listPostsQuery }),
-          client.graphql({ query: listFollowsQuery }),
-        ]);
+        const [profileResponse, postsResponse, followsResponse] =
+          await Promise.all([
+            client.graphql({
+              query: getProfileQuery,
+              variables: { id: userId },
+            }),
+            client.graphql({ query: listPostsQuery }),
+            client.graphql({ query: listFollowsQuery }),
+          ]);
 
         const loadedProfile =
-          (profileResponse as { data?: { getProfile?: CloudProfile | null } }).data?.getProfile ?? null;
+          (profileResponse as { data?: { getProfile?: CloudProfile | null } })
+            .data?.getProfile ?? null;
         setProfile(loadedProfile);
 
         if (loadedProfile?.iconImageKey) {
@@ -156,22 +173,30 @@ export default function ProfileDetailScreen() {
         }
 
         const postItems =
-          (postsResponse as { data?: { listPosts?: { items?: Array<CloudPost | null> } } }).data?.listPosts?.items ?? [];
+          (
+            postsResponse as {
+              data?: { listPosts?: { items?: Array<CloudPost | null> } };
+            }
+          ).data?.listPosts?.items ?? [];
 
         const ownPosts = postItems
-          .filter((item): item is CloudPost => Boolean(item?.id && item.content))
+          .filter((item): item is CloudPost =>
+            Boolean(item?.id && item.content),
+          )
           .filter((item) => item.owner === userId)
           .filter((item) => item.isArchived !== true);
 
         const renderPosts = await Promise.all(
           ownPosts.map(async (item) => {
-            let image = "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+            let image =
+              "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
             if (item.imageKey) {
               try {
                 const resolved = await getUrl({ path: item.imageKey });
                 image = resolved.url.toString();
               } catch {
-                image = "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+                image =
+                  "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
               }
             }
             return {
@@ -185,17 +210,28 @@ export default function ProfileDetailScreen() {
         setPosts(renderPosts);
 
         const followItems =
-          (followsResponse as { data?: { listFollows?: { items?: Array<CloudFollow | null> } } }).data?.listFollows
-            ?.items ?? [];
+          (
+            followsResponse as {
+              data?: { listFollows?: { items?: Array<CloudFollow | null> } };
+            }
+          ).data?.listFollows?.items ?? [];
         const normalizedFollows = followItems.filter(
-          (item): item is CloudFollow => Boolean(item?.id && item.followerId && item.followingId),
+          (item): item is CloudFollow =>
+            Boolean(item?.id && item.followerId && item.followingId),
         );
 
-        setFollowersCount(normalizedFollows.filter((item) => item.followingId === userId).length);
-        setFollowingCount(normalizedFollows.filter((item) => item.followerId === userId).length);
+        setFollowersCount(
+          normalizedFollows.filter((item) => item.followingId === userId)
+            .length,
+        );
+        setFollowingCount(
+          normalizedFollows.filter((item) => item.followerId === userId).length,
+        );
 
         if (me) {
-          const mine = normalizedFollows.find((item) => item.followerId === me && item.followingId === userId);
+          const mine = normalizedFollows.find(
+            (item) => item.followerId === me && item.followingId === userId,
+          );
           setMyFollowRecordId(mine?.id ?? null);
         } else {
           setMyFollowRecordId(null);
@@ -213,7 +249,9 @@ export default function ProfileDetailScreen() {
   const displayBio = profile?.bio
     ? sanitizeProfileBio(profile.bio)
     : "毎日コツコツ積み上げるのが目標です。開発と学習を継続中。";
-  const isOwnProfile = Boolean(currentUserId && userId && currentUserId === userId);
+  const isOwnProfile = Boolean(
+    currentUserId && userId && currentUserId === userId,
+  );
 
   const onToggleFollow = React.useCallback(async () => {
     if (!userId || !currentUserId || isOwnProfile || isFollowSubmitting) {
@@ -223,16 +261,22 @@ export default function ProfileDetailScreen() {
     try {
       setIsFollowSubmitting(true);
       if (myFollowRecordId) {
-        await client.graphql({ query: deleteFollowMutation, variables: { input: { id: myFollowRecordId } } });
+        await client.graphql({
+          query: deleteFollowMutation,
+          variables: { input: { id: myFollowRecordId } },
+        });
         setMyFollowRecordId(null);
         setFollowersCount((prev) => Math.max(0, prev - 1));
       } else {
         const response = await client.graphql({
           query: createFollowMutation,
-          variables: { input: { followerId: currentUserId, followingId: userId } },
+          variables: {
+            input: { followerId: currentUserId, followingId: userId },
+          },
         });
         const createdId =
-          (response as { data?: { createFollow?: { id?: string } } }).data?.createFollow?.id ?? null;
+          (response as { data?: { createFollow?: { id?: string } } }).data
+            ?.createFollow?.id ?? null;
         if (createdId) {
           setMyFollowRecordId(createdId);
           setFollowersCount((prev) => prev + 1);
@@ -243,7 +287,14 @@ export default function ProfileDetailScreen() {
     } finally {
       setIsFollowSubmitting(false);
     }
-  }, [client, currentUserId, isFollowSubmitting, isOwnProfile, myFollowRecordId, userId]);
+  }, [
+    client,
+    currentUserId,
+    isFollowSubmitting,
+    isOwnProfile,
+    myFollowRecordId,
+    userId,
+  ]);
 
   if (isLoading) {
     return (
@@ -263,7 +314,11 @@ export default function ProfileDetailScreen() {
       </BackButton>
       <View style={styles.headerCard}>
         <View style={styles.avatarWrap}>
-          {avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatar} /> : <View style={styles.avatar} />}
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={styles.avatar} />
+          )}
         </View>
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.bio}>{displayBio}</Text>
@@ -319,125 +374,126 @@ export default function ProfileDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  pageTitle: {
-    color: theme.colors.text,
-    fontSize: 30,
-    fontWeight: "900",
-    marginBottom: theme.spacing.sm,
-  },
-  loadingWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: theme.spacing.sm,
-  },
-  loadingText: {
-    color: theme.colors.text,
-    fontWeight: "700",
-  },
-  headerCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    padding: theme.spacing.lg,
-    ...theme.shadows.soft,
-  },
-  avatarWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: theme.spacing.sm,
-  },
-  avatar: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: theme.colors.surface,
-  },
-  name: {
-    color: theme.colors.text,
-    fontSize: 24,
-    fontWeight: "900",
-  },
-  bio: {
-    color: theme.colors.textSub,
-    marginTop: 4,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  actionRow: {
-    marginTop: theme.spacing.sm,
-    width: "100%",
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-  },
-  actionButton: {
-    flex: 1,
-  },
-  followRow: {
-    flexDirection: "row",
-    marginTop: theme.spacing.sm,
-    gap: theme.spacing.md,
-  },
-  followItem: {
-    alignItems: "center",
-  },
-  followValue: {
-    color: theme.colors.primary,
-    fontWeight: "900",
-    fontSize: 18,
-  },
-  followLabel: {
-    color: theme.colors.textSub,
-    fontWeight: "700",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  section: {
-    ...theme.text.section,
-    marginVertical: theme.spacing.md,
-  },
-  postCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    ...theme.shadows.soft,
-  },
-  image: {
-    height: 140,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
-  },
-  postText: {
-    color: theme.colors.text,
-    fontWeight: "600",
-    marginTop: 8,
-  },
-  postSubText: {
-    color: theme.colors.textSub,
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  emptyCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.lg,
-    alignItems: "center",
-  },
-  emptyText: {
-    color: theme.colors.textSub,
-    fontWeight: "700",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    pageTitle: {
+      color: theme.colors.text,
+      fontSize: 30,
+      fontWeight: "900",
+      marginBottom: theme.spacing.sm,
+    },
+    loadingWrap: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      gap: theme.spacing.sm,
+    },
+    loadingText: {
+      color: theme.colors.text,
+      fontWeight: "700",
+    },
+    headerCard: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      padding: theme.spacing.lg,
+      ...theme.shadows.soft,
+    },
+    avatarWrap: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      borderWidth: 2,
+      borderColor: theme.colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: theme.spacing.sm,
+    },
+    avatar: {
+      width: 86,
+      height: 86,
+      borderRadius: 43,
+      backgroundColor: theme.colors.surface,
+    },
+    name: {
+      color: theme.colors.text,
+      fontSize: 24,
+      fontWeight: "900",
+    },
+    bio: {
+      color: theme.colors.textSub,
+      marginTop: 4,
+      textAlign: "center",
+      lineHeight: 20,
+    },
+    actionRow: {
+      marginTop: theme.spacing.sm,
+      width: "100%",
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+    },
+    actionButton: {
+      flex: 1,
+    },
+    followRow: {
+      flexDirection: "row",
+      marginTop: theme.spacing.sm,
+      gap: theme.spacing.md,
+    },
+    followItem: {
+      alignItems: "center",
+    },
+    followValue: {
+      color: theme.colors.primary,
+      fontWeight: "900",
+      fontSize: 18,
+    },
+    followLabel: {
+      color: theme.colors.textSub,
+      fontWeight: "700",
+      fontSize: 12,
+      marginTop: 2,
+    },
+    section: {
+      ...theme.text.section,
+      marginVertical: theme.spacing.md,
+    },
+    postCard: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.sm,
+      ...theme.shadows.soft,
+    },
+    image: {
+      height: 140,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.colors.surface,
+    },
+    postText: {
+      color: theme.colors.text,
+      fontWeight: "600",
+      marginTop: 8,
+    },
+    postSubText: {
+      color: theme.colors.textSub,
+      marginTop: 4,
+      lineHeight: 20,
+    },
+    emptyCard: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: theme.spacing.lg,
+      alignItems: "center",
+    },
+    emptyText: {
+      color: theme.colors.textSub,
+      fontWeight: "700",
+    },
+  });

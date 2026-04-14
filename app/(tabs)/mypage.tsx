@@ -1,5 +1,12 @@
 import React from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
@@ -8,6 +15,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { CustomButton } from "../../src/components/common";
 import { ScreenContainer } from "../../src/components/common";
+import { Text } from "../../src/components/common/Typography";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
@@ -81,9 +89,13 @@ const listPostSavesQuery = /* GraphQL */ `
 `;
 
 export default function MyPageScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
 
-  const client = React.useMemo(() => generateClient(), []);
+  const client = React.useMemo(
+    () => generateClient({ authMode: "userPool" }),
+    [],
+  );
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
   const { logout } = useRoadmap();
@@ -112,12 +124,13 @@ export default function MyPageScreen() {
         return;
       }
 
-      const [profileResponse, postsResponse, followsResponse, savesResponse] = await Promise.all([
-        client.graphql({ query: getProfileQuery, variables: { id: userId } }),
-        client.graphql({ query: listPostsCountQuery }),
-        client.graphql({ query: listFollowsQuery }),
-        client.graphql({ query: listPostSavesQuery }),
-      ]);
+      const [profileResponse, postsResponse, followsResponse, savesResponse] =
+        await Promise.all([
+          client.graphql({ query: getProfileQuery, variables: { id: userId } }),
+          client.graphql({ query: listPostsCountQuery }),
+          client.graphql({ query: listFollowsQuery }),
+          client.graphql({ query: listPostSavesQuery }),
+        ]);
 
       const profile =
         (profileResponse as { data?: { getProfile?: CloudProfile | null } })
@@ -150,21 +163,34 @@ export default function MyPageScreen() {
       setPostCount(posts.filter((item) => Boolean(item?.id)).length);
 
       const follows =
-        (followsResponse as { data?: { listFollows?: { items?: Array<CloudFollow | null> } } }).data?.listFollows
-          ?.items ?? [];
-      const normalizedFollows = follows.filter(
-        (item): item is CloudFollow => Boolean(item?.id && item.followerId && item.followingId),
+        (
+          followsResponse as {
+            data?: { listFollows?: { items?: Array<CloudFollow | null> } };
+          }
+        ).data?.listFollows?.items ?? [];
+      const normalizedFollows = follows.filter((item): item is CloudFollow =>
+        Boolean(item?.id && item.followerId && item.followingId),
       );
-      setFollowersCount(normalizedFollows.filter((item) => item.followingId === userId).length);
-      setFollowingCount(normalizedFollows.filter((item) => item.followerId === userId).length);
+      setFollowersCount(
+        normalizedFollows.filter((item) => item.followingId === userId).length,
+      );
+      setFollowingCount(
+        normalizedFollows.filter((item) => item.followerId === userId).length,
+      );
 
       const saves =
-        (savesResponse as { data?: { listPostSaves?: { items?: Array<CloudSave | null> } } }).data?.listPostSaves
-          ?.items ?? [];
-      const normalizedSaves = saves.filter(
-        (item): item is CloudSave => Boolean(item?.id && item.postId),
+        (
+          savesResponse as {
+            data?: { listPostSaves?: { items?: Array<CloudSave | null> } };
+          }
+        ).data?.listPostSaves?.items ?? [];
+      const normalizedSaves = saves.filter((item): item is CloudSave =>
+        Boolean(item?.id && item.postId),
       );
-      setSavedCount(normalizedSaves.filter((item) => item.owner === authUser.username).length);
+      setSavedCount(
+        normalizedSaves.filter((item) => item.owner === authUser.username)
+          .length,
+      );
     } catch (error) {
       if (__DEV__) {
         console.log("[MyPage] failed to load profile:", error);
@@ -190,7 +216,10 @@ export default function MyPageScreen() {
   }, [logout, router]);
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface} scrollViewRef={scrollViewRef}>
+    <ScreenContainer
+      backgroundColor={theme.colors.surface}
+      scrollViewRef={scrollViewRef}
+    >
       <Text style={styles.pageTitle}>@{name}</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (
@@ -246,86 +275,87 @@ export default function MyPageScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  pageTitle: {
-    color: theme.colors.text,
-    fontSize: 30,
-    fontWeight: "900",
-    marginBottom: theme.spacing.sm,
-  },
-  profileCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: theme.colors.surface,
-    marginBottom: theme.spacing.sm,
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: theme.colors.text,
-  },
-  caption: {
-    color: theme.colors.textSub,
-    marginTop: 4,
-  },
-  editProfileButton: {
-    marginTop: theme.spacing.md,
-    width: "100%",
-  },
-  statWrap: {
-    flexDirection: "row",
-    width: "100%",
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    marginTop: theme.spacing.sm,
-    paddingTop: theme.spacing.sm,
-    justifyContent: "space-around",
-  },
-  statItem: {
-    alignItems: "center",
-  },
-  statNumber: {
-    color: theme.colors.primary,
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  statLabel: {
-    color: theme.colors.textSub,
-    fontWeight: "700",
-    marginTop: 2,
-    fontSize: 12,
-  },
-  menuItem: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.md,
-    height: 58,
-    marginBottom: theme.spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    ...theme.shadows.soft,
-  },
-  menuLeft: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    alignItems: "center",
-  },
-  menuText: {
-    color: theme.colors.text,
-    fontWeight: "700",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    pageTitle: {
+      color: theme.colors.text,
+      fontSize: 30,
+      fontWeight: "900",
+      marginBottom: theme.spacing.sm,
+    },
+    profileCard: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      padding: theme.spacing.lg,
+      marginBottom: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    avatar: {
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+      backgroundColor: theme.colors.surface,
+      marginBottom: theme.spacing.sm,
+    },
+    name: {
+      fontSize: 24,
+      fontWeight: "900",
+      color: theme.colors.text,
+    },
+    caption: {
+      color: theme.colors.textSub,
+      marginTop: 4,
+    },
+    editProfileButton: {
+      marginTop: theme.spacing.md,
+      width: "100%",
+    },
+    statWrap: {
+      flexDirection: "row",
+      width: "100%",
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+      marginTop: theme.spacing.sm,
+      paddingTop: theme.spacing.sm,
+      justifyContent: "space-around",
+    },
+    statItem: {
+      alignItems: "center",
+    },
+    statNumber: {
+      color: theme.colors.primary,
+      fontSize: 22,
+      fontWeight: "900",
+    },
+    statLabel: {
+      color: theme.colors.textSub,
+      fontWeight: "700",
+      marginTop: 2,
+      fontSize: 12,
+    },
+    menuItem: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: theme.spacing.md,
+      height: 58,
+      marginBottom: theme.spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      ...theme.shadows.soft,
+    },
+    menuLeft: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+      alignItems: "center",
+    },
+    menuText: {
+      color: theme.colors.text,
+      fontWeight: "700",
+    },
+  });

@@ -1,14 +1,16 @@
 import React from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
+import { Text } from "../../src/components/common/Typography";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
 export default function CreateScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const {
     activeRoadmap,
@@ -81,7 +83,11 @@ export default function CreateScreen() {
             </Text>
           </View>
           <View style={styles.objectiveIcon}>
-            <Ionicons name="desktop-outline" size={20} color={theme.colors.onPrimary} />
+            <Ionicons
+              name="desktop-outline"
+              size={20}
+              color={theme.colors.onPrimary}
+            />
           </View>
         </View>
       </View>
@@ -219,189 +225,190 @@ export default function CreateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.md,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  brandText: {
-    color: theme.colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  gear: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  objectiveLabel: {
-    color: theme.colors.primary,
-    fontWeight: "900",
-    letterSpacing: 2,
-    fontSize: 12,
-    textAlign: "center",
-    marginBottom: theme.spacing.xs,
-  },
-  objectiveCard: {
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    ...theme.shadows.soft,
-  },
-  objectiveTextWrap: {
-    flex: 1,
-    marginRight: theme.spacing.sm,
-  },
-  rowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  objectiveTitle: {
-    color: theme.colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  objectiveDate: {
-    color: theme.colors.textSub,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  objectiveIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  creditText: {
-    color: theme.colors.primary,
-    fontWeight: "800",
-    marginBottom: theme.spacing.sm,
-  },
-  noticeCard: {
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 10,
-    marginBottom: theme.spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  noticeText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-    flex: 1,
-  },
-  roadmapWrap: {
-    height: 860,
-    marginBottom: theme.spacing.md,
-    position: "relative",
-  },
-  pathLayer: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  nodeGroup: {
-    position: "absolute",
-    width: 220,
-    alignItems: "center",
-  },
-  nodeIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.colors.white,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-    ...theme.shadows.soft,
-  },
-  nodeCompleted: {
-    backgroundColor: theme.colors.success,
-    borderColor: theme.colors.success,
-  },
-  nodeCurrent: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  nodeCard: {
-    width: 220,
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.white,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  nodeCardCurrent: {
-    borderColor: theme.colors.primary,
-    borderWidth: 2,
-  },
-  nodeCardLocked: {
-    opacity: 0.78,
-  },
-  nodeCardTap: {
-    borderColor: theme.colors.success,
-  },
-  nodeStatus: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 4,
-  },
-  currentText: {
-    color: theme.colors.primary,
-  },
-  completeText: {
-    color: theme.colors.success,
-  },
-  nodeTitle: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  nodeSub: {
-    color: theme.colors.textSub,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  tapHint: {
-    color: theme.colors.success,
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  bottomActions: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  inlineAction: {
-    flex: 1,
-    minHeight: 48,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.md,
+    },
+    brandRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    brandText: {
+      color: theme.colors.text,
+      fontSize: 22,
+      fontWeight: "900",
+    },
+    gear: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    objectiveLabel: {
+      color: theme.colors.primary,
+      fontWeight: "900",
+      letterSpacing: 2,
+      fontSize: 12,
+      textAlign: "center",
+      marginBottom: theme.spacing.xs,
+    },
+    objectiveCard: {
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.sm,
+      ...theme.shadows.soft,
+    },
+    objectiveTextWrap: {
+      flex: 1,
+      marginRight: theme.spacing.sm,
+    },
+    rowBetween: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    objectiveTitle: {
+      color: theme.colors.text,
+      fontSize: 22,
+      fontWeight: "900",
+    },
+    objectiveDate: {
+      color: theme.colors.textSub,
+      fontSize: 14,
+      marginTop: 4,
+    },
+    objectiveIcon: {
+      width: 54,
+      height: 54,
+      borderRadius: 27,
+      backgroundColor: theme.colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    creditText: {
+      color: theme.colors.primary,
+      fontWeight: "800",
+      marginBottom: theme.spacing.sm,
+    },
+    noticeCard: {
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: 10,
+      marginBottom: theme.spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    noticeText: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontWeight: "700",
+      flex: 1,
+    },
+    roadmapWrap: {
+      height: 860,
+      marginBottom: theme.spacing.md,
+      position: "relative",
+    },
+    pathLayer: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    nodeGroup: {
+      position: "absolute",
+      width: 220,
+      alignItems: "center",
+    },
+    nodeIcon: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor: theme.colors.white,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 8,
+      ...theme.shadows.soft,
+    },
+    nodeCompleted: {
+      backgroundColor: theme.colors.success,
+      borderColor: theme.colors.success,
+    },
+    nodeCurrent: {
+      backgroundColor: theme.colors.primary,
+      borderColor: theme.colors.primary,
+    },
+    nodeCard: {
+      width: 220,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.colors.white,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      padding: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    nodeCardCurrent: {
+      borderColor: theme.colors.primary,
+      borderWidth: 2,
+    },
+    nodeCardLocked: {
+      opacity: 0.78,
+    },
+    nodeCardTap: {
+      borderColor: theme.colors.success,
+    },
+    nodeStatus: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "900",
+      marginBottom: 4,
+    },
+    currentText: {
+      color: theme.colors.primary,
+    },
+    completeText: {
+      color: theme.colors.success,
+    },
+    nodeTitle: {
+      color: theme.colors.text,
+      fontSize: 20,
+      fontWeight: "900",
+    },
+    nodeSub: {
+      color: theme.colors.textSub,
+      fontSize: 14,
+      marginTop: 4,
+    },
+    tapHint: {
+      color: theme.colors.success,
+      marginTop: 8,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+    bottomActions: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+    },
+    inlineAction: {
+      flex: 1,
+      minHeight: 48,
+    },
+  });

@@ -1,20 +1,25 @@
-import 'react-native-get-random-values';
+import "react-native-get-random-values";
 
-import React from 'react';
-import { Amplify } from 'aws-amplify';
-import { Stack } from 'expo-router';
-import { useFonts } from 'expo-font';
+import React from "react";
+import { Amplify } from "aws-amplify";
+import { Stack } from "expo-router";
+import { useFonts } from "expo-font";
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_500Medium,
   SpaceGrotesk_700Bold,
-} from '@expo-google-fonts/space-grotesk';
-import { Text, TextInput } from 'react-native';
-import awsExports from '../src/aws-exports';
-import { theme } from '../src/theme';
-import { RoadmapProvider } from '../src/store/roadmap-context';
+} from "@expo-google-fonts/space-grotesk";
+import { LogBox } from "react-native";
+import awsExports from "../src/aws-exports";
+import { applyThemeMode, theme } from "../src/theme";
+import { readStoredThemeMode } from "../src/theme/theme-storage";
+import { RoadmapProvider } from "../src/store/roadmap-context";
 
 Amplify.configure(awsExports);
+
+LogBox.ignoreLogs([
+  "props.pointerEvents is deprecated. Use style.pointerEvents",
+]);
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -22,28 +27,30 @@ export default function RootLayout() {
     SpaceGrotesk_500Medium,
     SpaceGrotesk_700Bold,
   });
+  const [isThemeReady, setIsThemeReady] = React.useState(false);
 
   React.useEffect(() => {
-    if (!fontsLoaded) {
-      return;
-    }
+    let isMounted = true;
 
-    const GlobalText = Text as unknown as { defaultProps?: { style?: unknown } };
-    const textDefaults = GlobalText.defaultProps ?? {};
-    GlobalText.defaultProps = {
-      ...textDefaults,
-      style: [textDefaults.style, { fontFamily: 'SpaceGrotesk_400Regular' }],
+    const bootstrapTheme = async () => {
+      const storedMode = await readStoredThemeMode();
+      if (storedMode) {
+        applyThemeMode(storedMode);
+      }
+
+      if (isMounted) {
+        setIsThemeReady(true);
+      }
     };
 
-    const GlobalTextInput = TextInput as unknown as { defaultProps?: { style?: unknown } };
-    const inputDefaults = GlobalTextInput.defaultProps ?? {};
-    GlobalTextInput.defaultProps = {
-      ...inputDefaults,
-      style: [inputDefaults.style, { fontFamily: 'SpaceGrotesk_400Regular' }],
-    };
-  }, [fontsLoaded]);
+    void bootstrapTheme();
 
-  if (!fontsLoaded) {
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  if (!fontsLoaded || !isThemeReady) {
     return null;
   }
 

@@ -1,17 +1,44 @@
-import { Platform, TextStyle, ViewStyle } from 'react-native';
+import { Platform, TextStyle, ViewStyle } from "react-native";
+
+export type ThemeMode = "dark" | "light";
+
+export const darkColors = {
+  primary: "#FF7A00",
+  background: "#0F0C0A",
+  surface: "#171311",
+  text: "#F5F2EE",
+  textSub: "#A89E95",
+  success: "#13C388",
+  danger: "#FF5A5F",
+  border: "#2B221E",
+  white: "#1D1714",
+  onPrimary: "#FFF8F2",
+  black: "#000000",
+};
+
+export const lightColors = {
+  primary: "#FF7A00",
+  background: "#FFF8F2",
+  surface: "#FFFFFF",
+  text: "#2E1D12",
+  textSub: "#8A6E5A",
+  success: "#1C9E68",
+  danger: "#D74345",
+  border: "#F1D9C5",
+  white: "#FFFFFF",
+  onPrimary: "#FFFFFF",
+  black: "#000000",
+};
+
+const paletteByMode = {
+  dark: darkColors,
+  light: lightColors,
+} as const;
+
+let currentThemeMode: ThemeMode = "dark";
 
 export const colors = {
-  primary: '#FF7A00',
-  background: '#0F0C0A',
-  surface: '#171311',
-  text: '#F5F2EE',
-  textSub: '#A89E95',
-  success: '#13C388',
-  danger: '#FF5A5F',
-  border: '#2B221E',
-  white: '#1D1714',
-  onPrimary: '#FFF8F2',
-  black: '#000000',
+  ...darkColors,
 };
 
 export const spacing = {
@@ -58,23 +85,35 @@ export const text = {
   title: {
     color: colors.text,
     fontSize: typography.h2,
-    fontWeight: '800',
+    fontWeight: "800",
   } as TextStyle,
   section: {
     color: colors.text,
     fontSize: typography.h3,
-    fontWeight: '700',
+    fontWeight: "700",
   } as TextStyle,
   body: {
     color: colors.text,
     fontSize: typography.body,
-    fontWeight: '500',
+    fontWeight: "500",
   } as TextStyle,
   caption: {
     color: colors.textSub,
     fontSize: typography.caption,
-    fontWeight: '500',
+    fontWeight: "500",
   } as TextStyle,
+};
+
+export const getThemeMode = (): ThemeMode => currentThemeMode;
+
+export const applyThemeMode = (mode: ThemeMode) => {
+  currentThemeMode = mode;
+  Object.assign(colors, paletteByMode[mode]);
+
+  text.title.color = colors.text;
+  text.section.color = colors.text;
+  text.body.color = colors.text;
+  text.caption.color = colors.textSub;
 };
 
 export const theme = {

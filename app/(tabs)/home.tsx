@@ -6,8 +6,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -17,6 +15,7 @@ import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
+import { Text, TextInput } from "../../src/components/common/Typography";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
@@ -400,10 +399,15 @@ const fallbackPosts: FeedPost[] = [
 ];
 
 export default function HomeScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
-  const cardImageWidth = Math.max(220, screenWidth - 64);
-  const client = React.useMemo(() => generateClient(), []);
+  const cardImageWidth = Math.max(220, screenWidth);
+  const cardImageHeight = Math.round(cardImageWidth * 1.15);
+  const client = React.useMemo(
+    () => generateClient({ authMode: "userPool" }),
+    [],
+  );
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
   const {
@@ -417,8 +421,8 @@ export default function HomeScreen() {
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
-   const [currentUserId, setCurrentUserId] = React.useState("");
-   const [unreadChatCount, setUnreadChatCount] = React.useState(0);
+  const [currentUserId, setCurrentUserId] = React.useState("");
+  const [unreadChatCount, setUnreadChatCount] = React.useState(0);
   const [reactionBonusScore, setReactionBonusScore] = React.useState(0);
   const [imageViewerState, setImageViewerState] = React.useState<{
     images: string[];
@@ -475,9 +479,12 @@ export default function HomeScreen() {
         me = user.userId;
         setCurrentUserId(me);
       } catch {
-        owner = "";
-        me = "";
+        setCurrentOwner("");
         setCurrentUserId("");
+        setPosts(fallbackPosts);
+        setStories([]);
+        setUnreadChatCount(0);
+        return;
       }
       setCurrentOwner(owner);
 
@@ -554,31 +561,41 @@ export default function HomeScreen() {
       const storyReactionItems =
         (
           storyReactionsResponse as {
-            data?: { listStoryReactions?: { items?: Array<CloudStoryReaction | null> } };
+            data?: {
+              listStoryReactions?: { items?: Array<CloudStoryReaction | null> };
+            };
           }
         ).data?.listStoryReactions?.items ?? [];
       const commentItems =
         (
           commentsResponse as {
-            data?: { listPostComments?: { items?: Array<CloudComment | null> } };
+            data?: {
+              listPostComments?: { items?: Array<CloudComment | null> };
+            };
           }
         ).data?.listPostComments?.items ?? [];
       const commentLikeItems =
         (
           commentLikesResponse as {
-            data?: { listCommentLikes?: { items?: Array<CloudCommentLike | null> } };
+            data?: {
+              listCommentLikes?: { items?: Array<CloudCommentLike | null> };
+            };
           }
         ).data?.listCommentLikes?.items ?? [];
       const directMessageItems =
         (
           directMessagesResponse as {
-            data?: { listDirectMessages?: { items?: Array<CloudDirectMessage | null> } };
+            data?: {
+              listDirectMessages?: { items?: Array<CloudDirectMessage | null> };
+            };
           }
         ).data?.listDirectMessages?.items ?? [];
       const readReceiptItems =
         (
           receiptsResponse as {
-            data?: { listReadReceipts?: { items?: Array<CloudReadReceipt | null> } };
+            data?: {
+              listReadReceipts?: { items?: Array<CloudReadReceipt | null> };
+            };
           }
         ).data?.listReadReceipts?.items ?? [];
 
@@ -608,7 +625,9 @@ export default function HomeScreen() {
       );
       const usernameToProfileId: Record<string, string> = {};
       profileItems
-        .filter((item): item is CloudProfile => Boolean(item?.id && item.username))
+        .filter((item): item is CloudProfile =>
+          Boolean(item?.id && item.username),
+        )
         .forEach((item) => {
           usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
         });
@@ -676,7 +695,8 @@ export default function HomeScreen() {
             if (item.createdAt) {
               const now = new Date();
               const createdAt = new Date(item.createdAt);
-              const ageHours = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+              const ageHours =
+                (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
               return ageHours < 24;
             }
             return true;
@@ -684,14 +704,23 @@ export default function HomeScreen() {
           .map((item) => item.id),
       );
       const nextReactionBonusScore =
-        likeItems.filter(
-          (item): item is CloudLike =>
+        likeItems
+          .filter((item): item is CloudLike =>
             Boolean(item?.id && item.postId && item.owner && item.reactionType),
-        ).filter((item) => myPostIds.has(item.postId) && item.owner !== owner).length * 30 +
-        storyReactionItems.filter(
-          (item): item is CloudStoryReaction =>
-            Boolean(item?.id && item.storyId && item.owner && item.reactionType),
-        ).filter((item) => myStoryIds.has(item.storyId) && item.owner !== owner).length * 30;
+          )
+          .filter((item) => myPostIds.has(item.postId) && item.owner !== owner)
+          .length *
+          30 +
+        storyReactionItems
+          .filter((item): item is CloudStoryReaction =>
+            Boolean(
+              item?.id && item.storyId && item.owner && item.reactionType,
+            ),
+          )
+          .filter(
+            (item) => myStoryIds.has(item.storyId) && item.owner !== owner,
+          ).length *
+          30;
 
       if (nextReactionBonusScore !== reactionBonusScore) {
         adjustScore(nextReactionBonusScore - reactionBonusScore);
@@ -700,19 +729,27 @@ export default function HomeScreen() {
 
       const readMessageIds = new Set(
         readReceiptItems
-          .filter((item): item is CloudReadReceipt => Boolean(item?.id && item.messageId && item.readerId))
+          .filter((item): item is CloudReadReceipt =>
+            Boolean(item?.id && item.messageId && item.readerId),
+          )
           .filter((item) => item.readerId === me)
           .map((item) => item.messageId),
       );
-      const unreadIncomingCount = directMessageItems.filter(
-        (item): item is CloudDirectMessage => Boolean(item?.id && item.body && item.fromUserId && item.toUserId),
-      ).filter((item) => item.toUserId === me && !readMessageIds.has(item.id)).length;
+      const unreadIncomingCount = directMessageItems
+        .filter((item): item is CloudDirectMessage =>
+          Boolean(item?.id && item.body && item.fromUserId && item.toUserId),
+        )
+        .filter(
+          (item) => item.toUserId === me && !readMessageIds.has(item.id),
+        ).length;
       setUnreadChatCount(unreadIncomingCount);
 
       const commentLikeCountByComment: Record<string, number> = {};
       const myCommentLikeRecordIds: Record<string, string> = {};
       commentLikeItems
-        .filter((item): item is CloudCommentLike => Boolean(item?.id && item.commentId))
+        .filter((item): item is CloudCommentLike =>
+          Boolean(item?.id && item.commentId),
+        )
         .forEach((item) => {
           commentLikeCountByComment[item.commentId] =
             (commentLikeCountByComment[item.commentId] ?? 0) + 1;
@@ -723,7 +760,9 @@ export default function HomeScreen() {
 
       const nextCommentsByPost: Record<string, FeedComment[]> = {};
       commentItems
-        .filter((item): item is CloudComment => Boolean(item?.id && item.postId && item.content))
+        .filter((item): item is CloudComment =>
+          Boolean(item?.id && item.postId && item.content),
+        )
         .forEach((item) => {
           const commentOwner = item.owner ?? "";
           const profile = profileByOwner.get(commentOwner);
@@ -731,7 +770,9 @@ export default function HomeScreen() {
             id: item.id,
             postId: item.postId,
             ownerId: profile?.id ?? commentOwner,
-            ownerName: profile?.username || (commentOwner.split("@")[0] || "USER").toUpperCase(),
+            ownerName:
+              profile?.username ||
+              (commentOwner.split("@")[0] || "USER").toUpperCase(),
             ownerAvatar: profile?.avatarUrl,
             content: item.content,
             createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
@@ -746,7 +787,8 @@ export default function HomeScreen() {
 
       Object.keys(nextCommentsByPost).forEach((postId) => {
         nextCommentsByPost[postId].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
       });
       setCommentsByPost(nextCommentsByPost);
@@ -774,7 +816,8 @@ export default function HomeScreen() {
             tags: item.tags ?? [],
             createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
             imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
-            imageKeys: item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
+            imageKeys:
+              item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
             imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
             passionCount: passionCountByPost[item.id] ?? 0,
             logicCount: logicCountByPost[item.id] ?? 0,
@@ -878,9 +921,26 @@ export default function HomeScreen() {
       const others = storyList.filter((story) => story.owner !== owner);
       setStories([myStoryItem, ...others]);
     } catch (error) {
+      const authErrorText = JSON.stringify(error);
+      const isNoCurrentUserError =
+        authErrorText.includes("No current user") ||
+        authErrorText.includes("NoSignedUser") ||
+        authErrorText.includes("NoUserPoolError") ||
+        authErrorText.includes("User needs to be authenticated");
+
+      if (isNoCurrentUserError) {
+        setCurrentOwner("");
+        setCurrentUserId("");
+        setPosts(fallbackPosts);
+        setStories([]);
+        setUnreadChatCount(0);
+        router.replace("/(auth)/login");
+        return;
+      }
+
       console.error("[Home] failed to fetch feed:", error);
     }
-  }, [adjustScore, client, reactionBonusScore]);
+  }, [adjustScore, client, reactionBonusScore, router]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -890,13 +950,19 @@ export default function HomeScreen() {
 
   const isUnauthorizedGraphQLError = React.useCallback((error: unknown) => {
     const serialized = JSON.stringify(error);
-    if (serialized.includes("Not Authorized") || serialized.includes("Unauthorized")) {
+    if (
+      serialized.includes("Not Authorized") ||
+      serialized.includes("Unauthorized")
+    ) {
       return true;
     }
 
     if (typeof error === "object" && error !== null && "message" in error) {
       const message = String((error as { message?: unknown }).message ?? "");
-      if (message.includes("Not Authorized") || message.includes("Unauthorized")) {
+      if (
+        message.includes("Not Authorized") ||
+        message.includes("Unauthorized")
+      ) {
         return true;
       }
     }
@@ -1164,7 +1230,9 @@ export default function HomeScreen() {
 
   const extractMentionHandles = React.useCallback((raw: string) => {
     const matches = raw.match(/@([a-zA-Z0-9_.]+)/g) ?? [];
-    return Array.from(new Set(matches.map((tag) => tag.replace("@", "").toLowerCase())));
+    return Array.from(
+      new Set(matches.map((tag) => tag.replace("@", "").toLowerCase())),
+    );
   }, []);
 
   const onSubmitComment = React.useCallback(
@@ -1197,7 +1265,13 @@ export default function HomeScreen() {
         Alert.alert("失敗", "コメント投稿に失敗しました。");
       }
     },
-    [client, commentInputByPost, extractMentionHandles, loadFeed, profileIdByUsername],
+    [
+      client,
+      commentInputByPost,
+      extractMentionHandles,
+      loadFeed,
+      profileIdByUsername,
+    ],
   );
 
   const onToggleCommentLike = React.useCallback(
@@ -1225,7 +1299,12 @@ export default function HomeScreen() {
         Alert.alert("失敗", "コメントいいね更新に失敗しました。");
       }
     },
-    [client, commentLikeRecordIdByComment, isUnauthorizedGraphQLError, loadFeed],
+    [
+      client,
+      commentLikeRecordIdByComment,
+      isUnauthorizedGraphQLError,
+      loadFeed,
+    ],
   );
 
   const renderCommentContent = React.useCallback(
@@ -1258,152 +1337,209 @@ export default function HomeScreen() {
   );
 
   return (
-    <ScreenContainer backgroundColor={theme.colors.surface} scrollViewRef={scrollViewRef}>
-      <View style={styles.headerRow}>
-        <View style={styles.brandRow}>
-          <Ionicons name="flash" size={22} color={theme.colors.primary} />
-          <Text style={styles.heading}>GROWGRAM</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable style={styles.headerIconButton} onPress={() => router.push('/chat')}>
-            <Ionicons name="chatbubble-ellipses" size={18} color={theme.colors.text} />
-            {unreadChatCount > 0 ? (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadChatCount > 9 ? '9+' : unreadChatCount}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-          <Pressable style={styles.headerIconButton} onPress={() => router.push('/notifications')}>
-            <Ionicons name="notifications" size={18} color={theme.colors.textSub} />
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View>
-          <Text style={styles.statLabel}>継続日数</Text>
-          <Text style={styles.statValue}>{streakDays}日</Text>
-        </View>
-        <View>
-          <Text style={styles.statLabel}>現在のレベル</Text>
-          <Text style={styles.statValueDark}>Lv.{level}</Text>
-        </View>
-        <View>
-          <Text style={styles.statLabel}>獲得スコア</Text>
-          <Text style={styles.statValue}>
-            {totalScore.toLocaleString()} pts
-          </Text>
-        </View>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.storyList}
-      >
-        {stories.map((story) => (
-          <Pressable
-            key={story.id}
-            style={styles.storyItem}
-            onPress={() =>
-              router.push(
-                story.id === "my-create"
-                  ? "/story-create"
-                  : `/story/${story.id}`,
-              )
-            }
-          >
-            <View
-              style={[styles.storyRing, story.active && styles.storyRingActive]}
+    <ScreenContainer
+      backgroundColor={theme.colors.surface}
+      scrollViewRef={scrollViewRef}
+      padded={false}
+    >
+      <View style={styles.topSection}>
+        <View style={styles.headerRow}>
+          <View style={styles.brandRow}>
+            <Ionicons name="flash" size={22} color={theme.colors.primary} />
+            <Text style={styles.heading}>GROWGRAM</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => router.push("/chat")}
             >
-              <Image source={{ uri: story.image }} style={styles.storyAvatar} />
-            </View>
-            <Text style={styles.storyName} numberOfLines={1}>
-              {story.userName}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+              <Ionicons
+                name="chatbubble-ellipses"
+                size={18}
+                color={theme.colors.text}
+              />
+              {unreadChatCount > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => router.push("/notifications")}
+            >
+              <Ionicons
+                name="notifications"
+                size={18}
+                color={theme.colors.textSub}
+              />
+            </Pressable>
+          </View>
+        </View>
 
-      <View style={styles.actionRow}>
-        <CustomButton
-          label="ストーリー投稿"
-          onPress={() => router.push("/story-create")}
-          style={styles.actionButton}
-        />
-        <CustomButton
-          label={
-            canCreatePost ? `通常投稿 (${postCredits})` : "通常投稿 (LOCKED)"
-          }
-          onPress={() =>
-            router.push(canCreatePost ? "/post-create" : "/(tabs)/create")
-          }
-          variant={canCreatePost ? "outline" : "secondary"}
-          style={styles.actionButton}
-        />
+        <View style={styles.statsRow}>
+          <View>
+            <Text style={styles.statLabel}>継続日数</Text>
+            <Text style={styles.statValue}>{streakDays}日</Text>
+          </View>
+          <View>
+            <Text style={styles.statLabel}>現在のレベル</Text>
+            <Text style={styles.statValueDark}>Lv.{level}</Text>
+          </View>
+          <View>
+            <Text style={styles.statLabel}>獲得スコア</Text>
+            <Text style={styles.statValue}>
+              {totalScore.toLocaleString()} pts
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.storyList}
+        >
+          {stories.map((story) => (
+            <Pressable
+              key={story.id}
+              style={styles.storyItem}
+              onPress={() =>
+                router.push(
+                  story.id === "my-create"
+                    ? "/story-create"
+                    : `/story/${story.id}`,
+                )
+              }
+            >
+              <View
+                style={[styles.storyRing, story.active && styles.storyRingActive]}
+              >
+                <Image source={{ uri: story.image }} style={styles.storyAvatar} />
+              </View>
+              <Text style={styles.storyName} numberOfLines={1}>
+                {story.userName}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <View style={styles.actionRow}>
+          <CustomButton
+            label="ストーリー投稿"
+            onPress={() => router.push("/story-create")}
+            style={styles.actionButton}
+            textStyle={styles.actionButtonText}
+          />
+          <CustomButton
+            label={
+              canCreatePost ? `通常投稿 (${postCredits})` : "通常投稿 (LOCKED)"
+            }
+            onPress={() =>
+              router.push(canCreatePost ? "/post-create" : "/(tabs)/create")
+            }
+            variant={canCreatePost ? "outline" : "secondary"}
+            style={styles.actionButton}
+            textStyle={styles.actionButtonText}
+          />
+        </View>
       </View>
 
       {posts.map((post) => {
         const isOwner = currentOwner.length > 0 && post.userId === currentOwner;
         return (
           <View key={post.id} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Pressable
-                style={styles.userRow}
-                onPress={() => router.push(`/profile/${post.userId}`)}
-              >
-                {post.userAvatar ? (
-                  <Image
-                    source={{ uri: post.userAvatar }}
-                    style={styles.userAvatar}
-                  />
-                ) : (
-                  <View style={styles.userAvatarPlaceholder} />
-                )}
-                <Text style={styles.user}>{post.userName}</Text>
-              </Pressable>
-            </View>
+            <View style={styles.postTopSection}>
+              <View style={styles.cardHeader}>
+                <Pressable
+                  style={styles.userRow}
+                  onPress={() => router.push(`/profile/${post.userId}`)}
+                >
+                  {post.userAvatar ? (
+                    <Image
+                      source={{ uri: post.userAvatar }}
+                      style={styles.userAvatar}
+                    />
+                  ) : (
+                    <View style={styles.userAvatarPlaceholder} />
+                  )}
+                  <Text style={styles.user}>{post.userName}</Text>
+                </Pressable>
+              </View>
 
-            <Text style={styles.day}>{post.title}</Text>
+              <Text style={styles.day}>{post.title}</Text>
+            </View>
             <View style={styles.imagePressable}>
               <ScrollView
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
                 onMomentumScrollEnd={(event) => {
-                  const pageIndex = Math.round(event.nativeEvent.contentOffset.x / cardImageWidth);
-                  setVisibleImageIndexByPost((prev) => ({ ...prev, [post.id]: pageIndex }));
+                  const pageIndex = Math.round(
+                    event.nativeEvent.contentOffset.x / cardImageWidth,
+                  );
+                  setVisibleImageIndexByPost((prev) => ({
+                    ...prev,
+                    [post.id]: pageIndex,
+                  }));
                 }}
                 style={styles.imageCarousel}
               >
-                {(post.imageUrls.length > 0 ? post.imageUrls : [post.image]).map((uri, index) => (
+                {(post.imageUrls.length > 0
+                  ? post.imageUrls
+                  : [post.image]
+                ).map((uri, index) => (
                   <Pressable
                     key={`${post.id}-${index}-${uri}`}
                     onLongPress={() => onPostLongPress(post.id)}
                     onPress={() =>
                       onPostTap(
                         post.id,
-                        post.imageUrls.length > 0 ? post.imageUrls : [post.image],
+                        post.imageUrls.length > 0
+                          ? post.imageUrls
+                          : [post.image],
                         index,
                       )
                     }
                     style={[styles.imageSlide, { width: cardImageWidth }]}
                   >
-                    <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+                    <Image
+                      source={{ uri }}
+                      style={[styles.image, { height: cardImageHeight }]}
+                      resizeMode="cover"
+                    />
                   </Pressable>
                 ))}
               </ScrollView>
               <View style={styles.imageDotsRow}>
-                {(post.imageUrls.length > 0 ? post.imageUrls : [post.image]).map((_, index) => {
+                {(post.imageUrls.length > 0
+                  ? post.imageUrls
+                  : [post.image]
+                ).map((_, index) => {
                   const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
                   const isActive = currentIndex === index;
-                  return <View key={`${post.id}-dot-${index}`} style={[styles.imageDot, isActive && styles.imageDotActive]} />;
+                  return (
+                    <View
+                      key={`${post.id}-dot-${index}`}
+                      style={[
+                        styles.imageDot,
+                        isActive && styles.imageDotActive,
+                      ]}
+                    />
+                  );
                 })}
               </View>
               {post.imageCount > 1 ? (
                 <View style={styles.multipleBadge}>
-                  <Ionicons name="albums" size={12} color={theme.colors.onPrimary} />
-                  <Text style={styles.multipleBadgeText}>{post.imageCount}</Text>
+                  <Ionicons
+                    name="albums"
+                    size={12}
+                    color={theme.colors.onPrimary}
+                  />
+                  <Text style={styles.multipleBadgeText}>
+                    {post.imageCount}
+                  </Text>
                 </View>
               ) : null}
               {gestureFeedback?.postId === post.id ? (
@@ -1427,6 +1563,8 @@ export default function HomeScreen() {
                 </View>
               ) : null}
             </View>
+
+            <View style={styles.postBottomSection}>
             <Text style={styles.gestureHint}>
               長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
             </Text>
@@ -1489,12 +1627,16 @@ export default function HomeScreen() {
                 >
                   <Ionicons
                     name={
-                      savedPostIds.has(post.id) ? "bookmark" : "bookmark-outline"
+                      savedPostIds.has(post.id)
+                        ? "bookmark"
+                        : "bookmark-outline"
                     }
                     size={16}
                     color={theme.colors.textSub}
                   />
-                  <Text style={styles.postActionText}>保存 {post.saveCount}</Text>
+                  <Text style={styles.postActionText}>
+                    保存 {post.saveCount}
+                  </Text>
                 </Pressable>
               )}
               <Pressable
@@ -1549,7 +1691,10 @@ export default function HomeScreen() {
                 <TextInput
                   value={commentInputByPost[post.id] ?? ""}
                   onChangeText={(text) =>
-                    setCommentInputByPost((prev) => ({ ...prev, [post.id]: text }))
+                    setCommentInputByPost((prev) => ({
+                      ...prev,
+                      [post.id]: text,
+                    }))
                   }
                   placeholder="コメントを書く（@username でメンション）"
                   placeholderTextColor={theme.colors.textSub}
@@ -1559,12 +1704,18 @@ export default function HomeScreen() {
                   style={styles.commentSendButton}
                   onPress={() => void onSubmitComment(post.id)}
                 >
-                  <Ionicons name="send" size={14} color={theme.colors.onPrimary} />
+                  <Ionicons
+                    name="send"
+                    size={14}
+                    color={theme.colors.onPrimary}
+                  />
                 </Pressable>
               </View>
 
               {(commentsByPost[post.id] ?? []).length === 0 ? (
-                <Text style={styles.commentEmptyText}>最初のコメントをしてみよう。</Text>
+                <Text style={styles.commentEmptyText}>
+                  最初のコメントをしてみよう。
+                </Text>
               ) : null}
 
               {(commentsByPost[post.id] ?? []).map((comment) => (
@@ -1579,11 +1730,16 @@ export default function HomeScreen() {
                       }}
                     >
                       {comment.ownerAvatar ? (
-                        <Image source={{ uri: comment.ownerAvatar }} style={styles.commentAvatar} />
+                        <Image
+                          source={{ uri: comment.ownerAvatar }}
+                          style={styles.commentAvatar}
+                        />
                       ) : (
                         <View style={styles.commentAvatarPlaceholder} />
                       )}
-                      <Text style={styles.commentOwner}>{comment.ownerName}</Text>
+                      <Text style={styles.commentOwner}>
+                        {comment.ownerName}
+                      </Text>
                     </Pressable>
 
                     <Pressable
@@ -1593,14 +1749,23 @@ export default function HomeScreen() {
                       <Ionicons
                         name={comment.likedByMe ? "heart" : "heart-outline"}
                         size={14}
-                        color={comment.likedByMe ? theme.colors.danger : theme.colors.textSub}
+                        color={
+                          comment.likedByMe
+                            ? theme.colors.danger
+                            : theme.colors.textSub
+                        }
                       />
-                      <Text style={styles.commentLikeText}>{comment.likeCount}</Text>
+                      <Text style={styles.commentLikeText}>
+                        {comment.likeCount}
+                      </Text>
                     </Pressable>
                   </View>
-                  <Text style={styles.commentText}>{renderCommentContent(comment.content)}</Text>
+                  <Text style={styles.commentText}>
+                    {renderCommentContent(comment.content)}
+                  </Text>
                 </View>
               ))}
+            </View>
             </View>
           </View>
         );
@@ -1627,15 +1792,23 @@ export default function HomeScreen() {
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                contentOffset={{ x: screenWidth * imageViewerState.initialIndex, y: 0 }}
+                contentOffset={{
+                  x: screenWidth * imageViewerState.initialIndex,
+                  y: 0,
+                }}
                 onMomentumScrollEnd={(event) => {
-                  const pageIndex = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                  const pageIndex = Math.round(
+                    event.nativeEvent.contentOffset.x / screenWidth,
+                  );
                   setViewerImageIndex(pageIndex);
                 }}
                 style={styles.viewerCarousel}
               >
                 {imageViewerState.images.map((uri, index) => (
-                  <View key={`${uri}-${index}`} style={[styles.viewerSlide, { width: screenWidth }]}>
+                  <View
+                    key={`${uri}-${index}`}
+                    style={[styles.viewerSlide, { width: screenWidth }]}
+                  >
                     <Image
                       source={{ uri }}
                       style={styles.viewerImage}
@@ -1649,7 +1822,16 @@ export default function HomeScreen() {
                 <View style={styles.viewerDotsRow}>
                   {imageViewerState.images.map((_, index) => {
                     const isActive = viewerImageIndex === index;
-                    return <View key={`viewer-dot-${index}`} style={[styles.imageDot, styles.viewerDot, isActive && styles.imageDotActive]} />;
+                    return (
+                      <View
+                        key={`viewer-dot-${index}`}
+                        style={[
+                          styles.imageDot,
+                          styles.viewerDot,
+                          isActive && styles.imageDotActive,
+                        ]}
+                      />
+                    );
                   })}
                 </View>
               ) : null}
@@ -1667,444 +1849,458 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  heading: {
-    fontSize: 30,
-    fontWeight: "900",
-    color: theme.colors.text,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.sm,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  headerIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    position: "relative",
-  },
-  badge: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.colors.danger,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: theme.colors.white,
-    fontSize: 10,
-    fontWeight: "900",
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  storyList: {
-    paddingBottom: theme.spacing.sm,
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  storyItem: {
-    width: 72,
-    alignItems: "center",
-  },
-  storyRing: {
-    width: 62,
-    height: 62,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.white,
-  },
-  storyRingActive: {
-    borderColor: theme.colors.primary,
-  },
-  storyAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 10,
-    backgroundColor: theme.colors.surface,
-  },
-  storyName: {
-    marginTop: 6,
-    color: theme.colors.text,
-    fontSize: 11,
-    fontWeight: "800",
-    maxWidth: 68,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  actionButton: {
-    flex: 1,
-    minHeight: 48,
-  },
-  statLabel: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  statValue: {
-    color: theme.colors.primary,
-    fontSize: 18,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  statValueDark: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  card: {
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  user: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  userRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  userAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.surface,
-  },
-  userAvatarPlaceholder: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.surface,
-  },
-  day: {
-    color: theme.colors.primary,
-    marginTop: 4,
-    fontWeight: "700",
-    marginBottom: theme.spacing.sm,
-  },
-  image: {
-    width: "100%",
-    height: 220,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
-  },
-  imagePressable: {
-    position: "relative",
-  },
-  imageCarousel: {
-    width: "100%",
-  },
-  imageSlide: {
-    maxWidth: "100%",
-  },
-  imageDotsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 6,
-    marginTop: 8,
-  },
-  imageDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(0,0,0,0.18)",
-  },
-  imageDotActive: {
-    width: 18,
-    backgroundColor: theme.colors.primary,
-  },
-  multipleBadge: {
-    position: "absolute",
-    right: 10,
-    top: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.72)",
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  multipleBadgeText: {
-    color: theme.colors.onPrimary,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  gesturePopup: {
-    position: "absolute",
-    alignSelf: "center",
-    top: "36%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 2,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-  },
-  gesturePopupText: {
-    color: theme.colors.onPrimary,
-    fontWeight: "900",
-    fontSize: 15,
-  },
-  gestureHint: {
-    marginTop: 8,
-    color: theme.colors.textSub,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  logLabel: {
-    marginTop: theme.spacing.sm,
-    color: theme.colors.primary,
-    fontWeight: "800",
-  },
-  log: {
-    marginTop: 2,
-    color: theme.colors.text,
-    lineHeight: 22,
-  },
-  tagRow: {
-    marginTop: theme.spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  tags: {
-    color: theme.colors.primary,
-    fontWeight: "700",
-  },
-  scoreRow: {
-    marginTop: theme.spacing.sm,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  scoreItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    flex: 1,
-    borderRadius: theme.radius.pill,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-  },
-  scoreLabel: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  postActions: {
-    marginTop: theme.spacing.sm,
-    flexDirection: "row",
-    gap: theme.spacing.md,
-    flexWrap: "wrap",
-  },
-  postActionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  postActionText: {
-    color: theme.colors.textSub,
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  postActionTextActive: {
-    color: theme.colors.primary,
-  },
-  commentSection: {
-    marginTop: theme.spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    paddingTop: theme.spacing.sm,
-    gap: 8,
-  },
-  commentSectionTitle: {
-    color: theme.colors.text,
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  commentInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  commentInput: {
-    flex: 1,
-    minHeight: 38,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
-    paddingHorizontal: 12,
-    fontWeight: "600",
-  },
-  commentSendButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  commentEmptyText: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  commentCard: {
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  commentHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  commentOwnerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  commentAvatar: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.colors.white,
-  },
-  commentAvatarPlaceholder: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.colors.white,
-  },
-  commentOwner: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  commentLikeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  commentLikeText: {
-    color: theme.colors.textSub,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  commentText: {
-    color: theme.colors.text,
-    lineHeight: 19,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  commentTextPlain: {
-    color: theme.colors.text,
-    lineHeight: 19,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  mentionText: {
-    color: theme.colors.primary,
-    lineHeight: 19,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  viewerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-    justifyContent: "center",
-  },
-  viewerCloseButton: {
-    position: "absolute",
-    top: 56,
-    right: 20,
-    zIndex: 10,
-  },
-  viewerCarousel: {
-    flexGrow: 0,
-  },
-  viewerDotsRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  viewerDot: {
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  viewerSlide: {
-    height: "100%",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 16,
-  },
-  viewerImage: {
-    width: "100%",
-    height: "82%",
-  },
-  viewerHint: {
-    textAlign: "center",
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 36,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    topSection: {
+      paddingHorizontal: theme.spacing.md,
+      paddingTop: theme.spacing.md,
+    },
+    heading: {
+      fontSize: 30,
+      fontWeight: "900",
+      color: theme.colors.text,
+    },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.sm,
+    },
+    brandRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    headerActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    headerIconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      position: "relative",
+    },
+    badge: {
+      position: "absolute",
+      top: -3,
+      right: -3,
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: theme.colors.danger,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
+    badgeText: {
+      color: theme.colors.white,
+      fontSize: 10,
+      fontWeight: "900",
+    },
+    statsRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      borderTopWidth: 1,
+      borderBottomWidth: 1,
+      borderColor: theme.colors.border,
+      paddingVertical: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+    },
+    storyList: {
+      paddingBottom: theme.spacing.sm,
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+    },
+    storyItem: {
+      width: 72,
+      alignItems: "center",
+    },
+    storyRing: {
+      width: 62,
+      height: 62,
+      borderRadius: 14,
+      borderWidth: 2,
+      borderColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.white,
+    },
+    storyRingActive: {
+      borderColor: theme.colors.primary,
+    },
+    storyAvatar: {
+      width: 54,
+      height: 54,
+      borderRadius: 10,
+      backgroundColor: theme.colors.surface,
+    },
+    storyName: {
+      marginTop: 6,
+      color: theme.colors.text,
+      fontSize: 11,
+      fontWeight: "800",
+      maxWidth: 68,
+    },
+    actionRow: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+    },
+    actionButton: {
+      flex: 1,
+      minHeight: 48,
+      paddingHorizontal: 10,
+    },
+    actionButtonText: {
+      fontSize: 14,
+      textAlign: "center",
+    },
+    statLabel: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    statValue: {
+      color: theme.colors.primary,
+      fontSize: 18,
+      fontWeight: "900",
+      marginTop: 2,
+    },
+    statValueDark: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontWeight: "900",
+      marginTop: 2,
+    },
+    card: {
+      backgroundColor: theme.colors.white,
+      marginBottom: theme.spacing.md,
+    },
+    postTopSection: {
+      paddingHorizontal: theme.spacing.md,
+      paddingTop: theme.spacing.md,
+      paddingBottom: theme.spacing.sm,
+    },
+    postBottomSection: {
+      paddingHorizontal: theme.spacing.md,
+      paddingTop: theme.spacing.sm,
+      paddingBottom: theme.spacing.md,
+    },
+    cardHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    user: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontWeight: "800",
+    },
+    userRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    userAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: theme.colors.surface,
+    },
+    userAvatarPlaceholder: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: theme.colors.surface,
+    },
+    day: {
+      color: theme.colors.primary,
+      marginTop: 4,
+      fontWeight: "700",
+      marginBottom: theme.spacing.sm,
+    },
+    image: {
+      width: "100%",
+      borderRadius: 0,
+      backgroundColor: theme.colors.surface,
+    },
+    imagePressable: {
+      position: "relative",
+    },
+    imageCarousel: {
+      width: "100%",
+    },
+    imageSlide: {
+      maxWidth: "100%",
+    },
+    imageDotsRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 6,
+      marginTop: 8,
+    },
+    imageDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "rgba(0,0,0,0.18)",
+    },
+    imageDotActive: {
+      width: 18,
+      backgroundColor: theme.colors.primary,
+    },
+    multipleBadge: {
+      position: "absolute",
+      right: 10,
+      top: 10,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "rgba(0,0,0,0.72)",
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    multipleBadgeText: {
+      color: theme.colors.onPrimary,
+      fontSize: 11,
+      fontWeight: "900",
+    },
+    gesturePopup: {
+      position: "absolute",
+      alignSelf: "center",
+      top: "36%",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      borderWidth: 2,
+      borderRadius: theme.radius.pill,
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+    },
+    gesturePopupText: {
+      color: theme.colors.onPrimary,
+      fontWeight: "900",
+      fontSize: 15,
+    },
+    gestureHint: {
+      marginTop: 8,
+      color: theme.colors.textSub,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    logLabel: {
+      marginTop: theme.spacing.sm,
+      color: theme.colors.primary,
+      fontWeight: "800",
+    },
+    log: {
+      marginTop: 2,
+      color: theme.colors.text,
+      lineHeight: 22,
+    },
+    tagRow: {
+      marginTop: theme.spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    tags: {
+      color: theme.colors.primary,
+      fontWeight: "700",
+    },
+    scoreRow: {
+      marginTop: theme.spacing.sm,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    scoreItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      flex: 1,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+    },
+    scoreLabel: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+    postActions: {
+      marginTop: theme.spacing.sm,
+      flexDirection: "row",
+      gap: theme.spacing.md,
+      flexWrap: "wrap",
+    },
+    postActionItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    postActionText: {
+      color: theme.colors.textSub,
+      fontWeight: "700",
+      fontSize: 12,
+    },
+    postActionTextActive: {
+      color: theme.colors.primary,
+    },
+    commentSection: {
+      marginTop: theme.spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+      paddingTop: theme.spacing.sm,
+      gap: 8,
+    },
+    commentSectionTitle: {
+      color: theme.colors.text,
+      fontWeight: "800",
+      fontSize: 13,
+    },
+    commentInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    commentInput: {
+      flex: 1,
+      minHeight: 38,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.pill,
+      backgroundColor: theme.colors.surface,
+      color: theme.colors.text,
+      paddingHorizontal: 12,
+      fontWeight: "600",
+    },
+    commentSendButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: theme.colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    commentEmptyText: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    commentCard: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    commentHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 4,
+    },
+    commentOwnerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    commentAvatar: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: theme.colors.white,
+    },
+    commentAvatarPlaceholder: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: theme.colors.white,
+    },
+    commentOwner: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+    commentLikeButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    commentLikeText: {
+      color: theme.colors.textSub,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    commentText: {
+      color: theme.colors.text,
+      lineHeight: 19,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    commentTextPlain: {
+      color: theme.colors.text,
+      lineHeight: 19,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    mentionText: {
+      color: theme.colors.primary,
+      lineHeight: 19,
+      fontSize: 13,
+      fontWeight: "800",
+    },
+    viewerOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.95)",
+      justifyContent: "center",
+    },
+    viewerCloseButton: {
+      position: "absolute",
+      top: 56,
+      right: 20,
+      zIndex: 10,
+    },
+    viewerCarousel: {
+      flexGrow: 0,
+    },
+    viewerDotsRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 8,
+      marginBottom: 12,
+    },
+    viewerDot: {
+      backgroundColor: "rgba(255,255,255,0.35)",
+    },
+    viewerSlide: {
+      height: "100%",
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 16,
+    },
+    viewerImage: {
+      width: "100%",
+      height: "82%",
+    },
+    viewerHint: {
+      textAlign: "center",
+      color: "rgba(255,255,255,0.85)",
+      fontSize: 12,
+      fontWeight: "700",
+      marginBottom: 36,
+    },
+  });

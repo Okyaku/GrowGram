@@ -1,11 +1,20 @@
 import React from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  DevSettings,
+  Pressable,
+  StyleSheet,
+  Switch,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { signOut } from "aws-amplify/auth";
 import { ScreenContainer } from "../src/components/common";
+import { Text } from "../src/components/common/Typography";
 import { useRoadmap } from "../src/store/roadmap-context";
-import { theme } from "../src/theme";
+import { applyThemeMode, getThemeMode, ThemeMode, theme } from "../src/theme";
+import { writeStoredThemeMode } from "../src/theme/theme-storage";
 
 const settingMenus = [
   {
@@ -31,8 +40,32 @@ const settingMenus = [
 ];
 
 export default function SettingsScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const { logout } = useRoadmap();
+  const [isLightMode, setIsLightMode] = React.useState(
+    getThemeMode() === "light",
+  );
+
+  const handleToggleTheme = React.useCallback(
+    async (nextLightMode: boolean) => {
+      const nextMode: ThemeMode = nextLightMode ? "light" : "dark";
+      setIsLightMode(nextLightMode);
+      applyThemeMode(nextMode);
+      await writeStoredThemeMode(nextMode);
+
+      if (__DEV__) {
+        DevSettings.reload();
+        return;
+      }
+
+      Alert.alert(
+        "テーマを変更しました",
+        "反映するにはアプリを再起動してください。",
+      );
+    },
+    [],
+  );
 
   const handleSignOut = React.useCallback(async () => {
     try {
@@ -82,6 +115,34 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.card}>
+        <View style={styles.modeRow}>
+          <View style={styles.menuLeft}>
+            <Ionicons
+              name={isLightMode ? "sunny" : "moon"}
+              size={18}
+              color={theme.colors.primary}
+            />
+            <View>
+              <Text style={styles.menuText}>ライトモード</Text>
+              <Text style={styles.modeHint}>
+                白とオレンジ基調に切り替えます
+              </Text>
+            </View>
+          </View>
+          <Switch
+            value={isLightMode}
+            onValueChange={(value) => {
+              void handleToggleTheme(value);
+            }}
+            trackColor={{ false: theme.colors.border, true: "#FFC089" }}
+            thumbColor={
+              isLightMode ? theme.colors.primary : theme.colors.textSub
+            }
+          />
+        </View>
+
+        <View style={styles.modeDivider} />
+
         {settingMenus.map((menu) => (
           <Pressable
             key={menu.label}
@@ -127,67 +188,86 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.md,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.white,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  card: {
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    padding: theme.spacing.sm,
-    ...theme.shadows.soft,
-  },
-  menuItem: {
-    height: 56,
-    borderRadius: theme.radius.md,
-    paddingHorizontal: theme.spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  menuLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing.sm,
-  },
-  menuText: {
-    color: theme.colors.text,
-    fontWeight: "700",
-  },
-  bottomArea: {
-    marginTop: "auto",
-    alignItems: "center",
-    paddingVertical: theme.spacing.md,
-  },
-  deleteLink: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "700",
-    textDecorationLine: "underline",
-  },
-  logoutItem: {
-    borderColor: theme.colors.danger,
-  },
-  logoutText: {
-    color: theme.colors.danger,
-    fontWeight: "800",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.md,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.white,
+    },
+    title: {
+      color: theme.colors.text,
+      fontSize: 20,
+      fontWeight: "900",
+    },
+    card: {
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      padding: theme.spacing.sm,
+      ...theme.shadows.soft,
+    },
+    menuItem: {
+      height: 56,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    modeRow: {
+      minHeight: 64,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    modeDivider: {
+      height: 1,
+      marginHorizontal: theme.spacing.md,
+      backgroundColor: theme.colors.border,
+    },
+    menuLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing.sm,
+    },
+    menuText: {
+      color: theme.colors.text,
+      fontWeight: "700",
+    },
+    bottomArea: {
+      marginTop: "auto",
+      alignItems: "center",
+      paddingVertical: theme.spacing.md,
+    },
+    deleteLink: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "700",
+      textDecorationLine: "underline",
+    },
+    logoutItem: {
+      borderColor: theme.colors.danger,
+    },
+    logoutText: {
+      color: theme.colors.danger,
+      fontWeight: "800",
+    },
+    modeHint: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+  });

@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../../theme";
+import { getThemeMode, theme } from "../../theme";
 
 type Props = {
   children: ReactNode;
@@ -35,6 +35,9 @@ export const ScreenContainer: React.FC<Props> = ({
   keyboardVerticalOffset = 0,
   scrollViewRef,
 }) => {
+  const statusBarStyle =
+    getThemeMode() === "dark" ? "light-content" : "dark-content";
+
   const content = (
     <View style={[styles.inner, padded && styles.padded]}>{children}</View>
   );
@@ -50,7 +53,7 @@ export const ScreenContainer: React.FC<Props> = ({
       style={[styles.safeArea, { backgroundColor }]}
       {...panHandlers}
     >
-      <StatusBar barStyle="dark-content" backgroundColor={backgroundColor} />
+      <StatusBar barStyle={statusBarStyle} backgroundColor={backgroundColor} />
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={
@@ -69,7 +72,9 @@ export const ScreenContainer: React.FC<Props> = ({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardDismissMode={
+                Platform.OS === "ios" ? "interactive" : "on-drag"
+              }
             >
               {content}
             </ScrollView>

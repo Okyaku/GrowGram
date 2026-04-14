@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +13,7 @@ import {
 } from "../src/components/common";
 import { theme } from "../src/theme";
 import { BackButton } from "../src/components/common/BackButton";
+import { Text } from "../src/components/common/Typography";
 
 type ProfileItem = {
   id: string;
@@ -72,8 +73,12 @@ const updateProfileMutation = /* GraphQL */ `
 `;
 
 export default function ProfileEditScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
-  const client = React.useMemo(() => generateClient(), []);
+  const client = React.useMemo(
+    () => generateClient({ authMode: "userPool" }),
+    [],
+  );
   const [avatar, setAvatar] = React.useState<string | null>(null);
   const [username, setUsername] = React.useState("");
   const [challenge, setChallenge] = React.useState("");
@@ -338,108 +343,109 @@ export default function ProfileEditScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.md,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.surface,
-  },
-  backBtnDummy: {
-    width: 36,
-    height: 36,
-  },
-  title: {
-    ...theme.text.title,
-    marginBottom: 0,
-  },
-  avatarWrap: {
-    alignItems: "center",
-    marginBottom: theme.spacing.md,
-    position: "relative",
-  },
-  avatarButton: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    ...theme.shadows.soft,
-  },
-  avatarPlaceholder: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-  },
-  avatar: {
-    flex: 1,
-  },
-  editBadge: {
-    position: "absolute",
-    right: 108,
-    top: 102,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: theme.colors.background,
-  },
-  helper: {
-    marginTop: 10,
-    color: theme.colors.text,
-    fontWeight: "900",
-    fontSize: 34,
-  },
-  helperSub: {
-    color: theme.colors.textSub,
-    fontWeight: "600",
-    marginTop: 4,
-    marginBottom: theme.spacing.sm,
-  },
-  progressRow: {
-    marginTop: theme.spacing.md,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
-  },
-  progressOff: {
-    width: 90,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.border,
-  },
-  progressOn: {
-    width: 90,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.primary,
-  },
-  tipCard: {
-    marginTop: theme.spacing.md,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.md,
-  },
-  tipTitle: {
-    color: theme.colors.primary,
-    fontWeight: "900",
-    marginBottom: 4,
-  },
-  tipText: {
-    color: theme.colors.text,
-    lineHeight: 22,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.md,
+    },
+    backBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.surface,
+    },
+    backBtnDummy: {
+      width: 36,
+      height: 36,
+    },
+    title: {
+      ...theme.text.title,
+      marginBottom: 0,
+    },
+    avatarWrap: {
+      alignItems: "center",
+      marginBottom: theme.spacing.md,
+      position: "relative",
+    },
+    avatarButton: {
+      width: 140,
+      height: 140,
+      borderRadius: 70,
+      overflow: "hidden",
+      borderWidth: 2,
+      borderColor: theme.colors.primary,
+      ...theme.shadows.soft,
+    },
+    avatarPlaceholder: {
+      flex: 1,
+      backgroundColor: theme.colors.surface,
+    },
+    avatar: {
+      flex: 1,
+    },
+    editBadge: {
+      position: "absolute",
+      right: 108,
+      top: 102,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: theme.colors.background,
+    },
+    helper: {
+      marginTop: 10,
+      color: theme.colors.text,
+      fontWeight: "900",
+      fontSize: 16,
+    },
+    helperSub: {
+      color: theme.colors.textSub,
+      fontWeight: "600",
+      marginTop: 4,
+      marginBottom: theme.spacing.sm,
+    },
+    progressRow: {
+      marginTop: theme.spacing.md,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 10,
+    },
+    progressOff: {
+      width: 90,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.colors.border,
+    },
+    progressOn: {
+      width: 90,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.colors.primary,
+    },
+    tipCard: {
+      marginTop: theme.spacing.md,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      padding: theme.spacing.md,
+    },
+    tipTitle: {
+      color: theme.colors.primary,
+      fontWeight: "900",
+      marginBottom: 4,
+    },
+    tipText: {
+      color: theme.colors.text,
+      lineHeight: 22,
+    },
+  });
