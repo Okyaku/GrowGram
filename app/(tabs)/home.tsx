@@ -646,19 +646,37 @@ export default function HomeScreen() {
       const myReactionKeys = new Set<string>();
       const myReactionRecordIds: Record<string, string> = {};
       const myReactionRecordIdsByKey: Record<string, string[]> = {};
-      const dedupedLikeItems = likeItems
+      const validLikeItems = likeItems
         .filter((item): item is CloudLike => Boolean(item?.id && item.postId))
         .filter((item) => {
-          const reactionType = item.reactionType;
-          const likeIdentity = item.owner
-            ? `${item.postId}:${reactionType ?? ""}:${item.owner}`
-            : `id:${item.id}`;
-          if (seenLikeIdentities.has(likeIdentity)) {
-            return false;
+          if (!isOwnedByMe(item.owner)) {
+            return true;
           }
-          seenLikeIdentities.add(likeIdentity);
+
+          const key = `${item.postId}:${item.reactionType ?? ""}`;
+          myReactionKeys.add(key);
+          if (!myReactionRecordIdsByKey[key]) {
+            myReactionRecordIdsByKey[key] = [];
+          }
+          myReactionRecordIdsByKey[key].push(item.id);
+          myReactionRecordIdsByKey[key] = Array.from(
+            new Set(myReactionRecordIdsByKey[key]),
+          );
+          myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
           return true;
         });
+
+      const dedupedLikeItems = validLikeItems.filter((item) => {
+        const reactionType = item.reactionType;
+        const likeIdentity = item.owner
+          ? `${item.postId}:${reactionType ?? ""}:${item.owner}`
+          : `id:${item.id}`;
+        if (seenLikeIdentities.has(likeIdentity)) {
+          return false;
+        }
+        seenLikeIdentities.add(likeIdentity);
+        return true;
+      });
 
       dedupedLikeItems.forEach((item) => {
         const reactionType = item.reactionType;
@@ -673,16 +691,6 @@ export default function HomeScreen() {
         if (reactionType === "routine") {
           routineCountByPost[item.postId] =
             (routineCountByPost[item.postId] ?? 0) + 1;
-        }
-
-        if (isOwnedByMe(item.owner)) {
-          const key = `${item.postId}:${reactionType ?? ""}`;
-          myReactionKeys.add(key);
-          if (!myReactionRecordIdsByKey[key]) {
-            myReactionRecordIdsByKey[key] = [];
-          }
-          myReactionRecordIdsByKey[key].push(item.id);
-          myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
         }
       });
 
