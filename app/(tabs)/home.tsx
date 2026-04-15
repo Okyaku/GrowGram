@@ -780,30 +780,39 @@ export default function HomeScreen() {
       const myCommentLikeRecordIds: Record<string, string> = {};
       const myCommentLikeRecordIdsByComment: Record<string, string[]> = {};
       const seenCommentLikeIdentities = new Set<string>();
-      commentLikeItems
+      const validCommentLikeItems = commentLikeItems
         .filter((item): item is CloudCommentLike =>
           Boolean(item?.id && item.commentId),
         )
-        .forEach((item) => {
-          const identity = item.owner
-            ? `${item.commentId}:${item.owner}`
-            : `id:${item.id}`;
-          if (seenCommentLikeIdentities.has(identity)) {
-            return;
+        .filter((item) => {
+          if (!isOwnedByMe(item.owner)) {
+            return true;
           }
-          seenCommentLikeIdentities.add(identity);
 
-          commentLikeCountByComment[item.commentId] =
-            (commentLikeCountByComment[item.commentId] ?? 0) + 1;
-          if (isOwnedByMe(item.owner)) {
-            if (!myCommentLikeRecordIdsByComment[item.commentId]) {
-              myCommentLikeRecordIdsByComment[item.commentId] = [];
-            }
-            myCommentLikeRecordIdsByComment[item.commentId].push(item.id);
-            myCommentLikeRecordIds[item.commentId] =
-              myCommentLikeRecordIdsByComment[item.commentId][0];
+          if (!myCommentLikeRecordIdsByComment[item.commentId]) {
+            myCommentLikeRecordIdsByComment[item.commentId] = [];
           }
+          myCommentLikeRecordIdsByComment[item.commentId].push(item.id);
+          myCommentLikeRecordIdsByComment[item.commentId] = Array.from(
+            new Set(myCommentLikeRecordIdsByComment[item.commentId]),
+          );
+          myCommentLikeRecordIds[item.commentId] =
+            myCommentLikeRecordIdsByComment[item.commentId][0];
+          return true;
         });
+
+      validCommentLikeItems.forEach((item) => {
+        const identity = item.owner
+          ? `${item.commentId}:${item.owner}`
+          : `id:${item.id}`;
+        if (seenCommentLikeIdentities.has(identity)) {
+          return;
+        }
+        seenCommentLikeIdentities.add(identity);
+
+        commentLikeCountByComment[item.commentId] =
+          (commentLikeCountByComment[item.commentId] ?? 0) + 1;
+      });
 
       const nextCommentsByPost: Record<string, FeedComment[]> = {};
       commentItems
