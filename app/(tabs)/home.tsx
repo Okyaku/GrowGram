@@ -742,13 +742,13 @@ export default function HomeScreen() {
       const myPostIds = new Set(
         postItems
           .filter((item): item is CloudPost => Boolean(item?.id && item.owner))
-          .filter((item) => item.owner === owner)
+          .filter((item) => isOwnedByMe(item.owner))
           .map((item) => item.id),
       );
       const myStoryIds = new Set(
         storyItems
           .filter((item): item is CloudStory => Boolean(item?.id && item.owner))
-          .filter((item) => item.owner === owner)
+          .filter((item) => isOwnedByMe(item.owner))
           .filter((item) => {
             // createdAt から 24 時間以内のストーリーを確認
             if (item.createdAt) {
@@ -1113,8 +1113,7 @@ export default function HomeScreen() {
             ),
           );
         } else {
-          const actorId = currentOwner || currentUserId;
-          const encodedActorId = encodeActorId(actorId);
+          const encodedActorId = encodeActorId(currentUserId);
           const deterministicId = `${postId}:${reactionType}:${encodedActorId}`;
           await client.graphql({
             query: createPostLikeMutation,
@@ -1454,8 +1453,7 @@ export default function HomeScreen() {
             ),
           );
         } else {
-          const actorId = currentOwner || currentUserId;
-          const encodedActorId = encodeActorId(actorId);
+          const encodedActorId = encodeActorId(currentUserId);
           const deterministicId = `${comment.id}:${encodedActorId}`;
           await client.graphql({
             query: createCommentLikeMutation,
