@@ -477,6 +477,20 @@ export default function HomeScreen() {
   const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
   const isIdentityReady = Boolean(currentOwner && currentUserId);
 
+  const encodeActorId = (id: string): string => {
+    try {
+      const base64 = btoa(unescape(encodeURIComponent(id)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
+      return base64;
+    } catch {
+      return Array.from(id)
+        .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join("");
+    }
+  };
+
   const loadFeed = React.useCallback(async () => {
     try {
       let owner = "";
@@ -1100,8 +1114,8 @@ export default function HomeScreen() {
           );
         } else {
           const actorId = currentOwner || currentUserId;
-          const normalizedActorId = actorId.replace(/[^a-zA-Z0-9_-]/g, "_");
-          const deterministicId = `${postId}:${reactionType}:${normalizedActorId}`;
+          const encodedActorId = encodeActorId(actorId);
+          const deterministicId = `${postId}:${reactionType}:${encodedActorId}`;
           await client.graphql({
             query: createPostLikeMutation,
             variables: {
@@ -1441,8 +1455,8 @@ export default function HomeScreen() {
           );
         } else {
           const actorId = currentOwner || currentUserId;
-          const normalizedActorId = actorId.replace(/[^a-zA-Z0-9_-]/g, "_");
-          const deterministicId = `${comment.id}:${normalizedActorId}`;
+          const encodedActorId = encodeActorId(actorId);
+          const deterministicId = `${comment.id}:${encodedActorId}`;
           await client.graphql({
             query: createCommentLikeMutation,
             variables: {
