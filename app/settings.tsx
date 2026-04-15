@@ -2,6 +2,7 @@ import React from "react";
 import {
   Alert,
   DevSettings,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
@@ -55,8 +56,15 @@ export default function SettingsScreen() {
       await writeStoredThemeMode(nextMode);
 
       if (__DEV__) {
-        DevSettings.reload();
-        return;
+        if (Platform.OS === "web") {
+          if (typeof window !== "undefined") {
+            window.location.reload();
+            return;
+          }
+        } else if (DevSettings?.reload) {
+          DevSettings.reload();
+          return;
+        }
       }
 
       Alert.alert(
