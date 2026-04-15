@@ -478,18 +478,56 @@ export default function HomeScreen() {
   const isIdentityReady = Boolean(currentOwner && currentUserId);
 
   const encodeActorId = (id: string): string => {
-    try {
-      const base64 = btoa(unescape(encodeURIComponent(id)))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
-      return base64;
-    } catch {
-      return Array.from(id)
-        .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
-        .join("");
+    const alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const bytes = new TextEncoder().encode(id);
+    let output = "";
+
+    for (let index = 0; index < bytes.length; index += 3) {
+      const first = bytes[index];
+      const second = index + 1 < bytes.length ? bytes[index + 1] : undefined;
+      const third = index + 2 < bytes.length ? bytes[index + 2] : undefined;
+      const triple = (first << 16) | ((second ?? 0) << 8) | (third ?? 0);
+
+      output += alphabet[(triple >> 18) & 63];
+      output += alphabet[(triple >> 12) & 63];
+      if (second !== undefined) {
+        output += alphabet[(triple >> 6) & 63];
+      }
+      if (third !== undefined) {
+        output += alphabet[triple & 63];
+      }
     }
+
+    return output;
   };
+
+  const deleteRecordsInBatches = React.useCallback(
+    async (ids: string[], query: string, kind: string) => {
+      const batchSize = 5;
+      for (let index = 0; index < ids.length; index += batchSize) {
+        const batch = ids.slice(index, index + batchSize);
+        const results = await Promise.allSettled(
+          batch.map((id) =>
+            client.graphql({
+              query,
+              variables: { input: { id } },
+            }),
+          ),
+        );
+
+        results.forEach((result, resultIndex) => {
+          if (result.status === "rejected") {
+            console.warn(
+              `[Home] failed to delete ${kind} record ${batch[resultIndex]}:`,
+              result.reason,
+            );
+          }
+        });
+      }
+    },
+    [client],
+  );
 
   const loadFeed = React.useCallback(async () => {
     try {
@@ -1104,13 +1142,10 @@ export default function HomeScreen() {
           (reactionRecordIdByKey[key] ? [reactionRecordIdByKey[key]] : []);
 
         if (existingIds.length > 0) {
-          await Promise.all(
-            Array.from(new Set(existingIds)).map((id) =>
-              client.graphql({
-                query: deletePostLikeMutation,
-                variables: { input: { id } },
-              }),
-            ),
+          await deleteRecordsInBatches(
+            Array.from(new Set(existingIds)),
+            deletePostLikeMutation,
+            "reaction",
           );
         } else {
           const encodedActorId = encodeActorId(currentUserId);
@@ -1201,11 +1236,15 @@ export default function HomeScreen() {
 
   const onPostLongPress = React.useCallback(
     (postId: string) => {
+      if (!isIdentityReady) {
+        return;
+      }
+
       clearTapState(postId);
       showGestureFeedback(postId, "passion");
       void toggleReaction(postId, "passion");
     },
-    [clearTapState, showGestureFeedback, toggleReaction],
+    [clearTapState, isIdentityReady, showGestureFeedback, toggleReaction],
   );
 
   const onPostTap = React.useCallback(
@@ -1221,12 +1260,20 @@ export default function HomeScreen() {
         delete tapCountRef.current[postId];
 
         if (count >= 3) {
+          if (!isIdentityReady) {
+            return;
+          }
+
           showGestureFeedback(postId, "routine");
           void toggleReaction(postId, "routine");
           return;
         }
 
         if (count === 2) {
+          if (!isIdentityReady) {
+            return;
+          }
+
           showGestureFeedback(postId, "logic");
           void toggleReaction(postId, "logic");
           return;
@@ -1444,13 +1491,10 @@ export default function HomeScreen() {
             : []);
 
         if (existingIds.length > 0) {
-          await Promise.all(
-            Array.from(new Set(existingIds)).map((id) =>
-              client.graphql({
-                query: deleteCommentLikeMutation,
-                variables: { input: { id } },
-              }),
-            ),
+          await deleteRecordsInBatches(
+            Array.from(new Set(existingIds)),
+            deleteCommentLikeMutation,
+            "comment like",
           );
         } else {
           const encodedActorId = encodeActorId(currentUserId);
@@ -1486,6 +1530,7 @@ export default function HomeScreen() {
       isDuplicateRecordError,
       isUnauthorizedGraphQLError,
       isIdentityReady,
+      deleteRecordsInBatches,
       loadFeed,
     ],
   );
