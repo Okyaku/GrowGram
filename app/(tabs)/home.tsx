@@ -808,8 +808,9 @@ export default function HomeScreen() {
         });
 
       validCommentLikeItems.forEach((item) => {
-        const identity = item.owner
-          ? `${item.commentId}:${item.owner}`
+        const normalizedOwner = normalizeOwner(item.owner);
+        const identity = normalizedOwner
+          ? `${item.commentId}:${normalizedOwner}`
           : `id:${item.id}`;
         if (seenCommentLikeIdentities.has(identity)) {
           return;
