@@ -49,7 +49,7 @@ export default function CreateScreen() {
 
   const buildPathItems = () => {
     const items: Array<
-      | { type: "milestone"; milestone: typeof milestones[number] }
+      | { type: "milestone"; milestone: (typeof milestones)[number] }
       | { type: "step"; step: ShortTermGoal }
       | { type: "gap"; gapIndex: number }
     > = [];
@@ -78,7 +78,9 @@ export default function CreateScreen() {
   const [addTarget, setAddTarget] = React.useState<null | "milestone" | "step">(
     null,
   );
-  const [addingStepIndex, setAddingStepIndex] = React.useState<number | null>(null);
+  const [addingStepIndex, setAddingStepIndex] = React.useState<number | null>(
+    null,
+  );
   const [shortTermGoals, setShortTermGoals] = React.useState<ShortTermGoal[]>([
     { id: "step-1", title: "01: 基礎単語", subtitle: "基礎を固める" },
     { id: "step-2", title: "02: ツール導入", subtitle: "環境を整える" },
@@ -112,9 +114,10 @@ export default function CreateScreen() {
   const currentMilestone = milestones.find(
     (milestone) => milestone.status === "current",
   );
-  const progress = milestones.length > 0
-    ? Math.round((activeRoadmap.completedCount / milestones.length) * 100)
-    : 0;
+  const progress =
+    milestones.length > 0
+      ? Math.round((activeRoadmap.completedCount / milestones.length) * 100)
+      : 0;
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
 
   const wizardQuestions = [
@@ -343,7 +346,11 @@ export default function CreateScreen() {
     setShortTermGoals((prev) =>
       prev.map((step) =>
         step.id === editingStepId
-          ? { ...step, title: editStepTitle.trim(), subtitle: editStepSubtitle.trim() }
+          ? {
+              ...step,
+              title: editStepTitle.trim(),
+              subtitle: editStepSubtitle.trim(),
+            }
           : step,
       ),
     );
@@ -412,15 +419,14 @@ export default function CreateScreen() {
   }, [pulseAnim]);
 
   return (
-    <ScreenContainer
-      backgroundColor="#FFFFFF"
-      scrollViewRef={scrollViewRef}
-    >
+    <ScreenContainer backgroundColor="#FFFFFF" scrollViewRef={scrollViewRef}>
       {flowStep === "loading" ? (
         <View style={styles.loaderScreen}>
           <View style={styles.loaderGlyph} />
           <Text style={styles.loaderTitle}>あたなのデータを解析中...</Text>
-          <Text style={styles.loaderSubtitle}>1,000件の成功事例と照合しています。</Text>
+          <Text style={styles.loaderSubtitle}>
+            1,000件の成功事例と照合しています。
+          </Text>
         </View>
       ) : showIntroScreen ? (
         <View style={styles.introContainer}>
@@ -431,8 +437,13 @@ export default function CreateScreen() {
           <Pressable style={styles.primaryAction} onPress={onChooseAIMode}>
             <Text style={styles.primaryActionText}>AIで目標を設定する</Text>
           </Pressable>
-          <Pressable style={styles.secondaryAction} onPress={onChooseManualMode}>
-            <Text style={styles.secondaryActionText}>自分で白紙のロードマップを作る</Text>
+          <Pressable
+            style={styles.secondaryAction}
+            onPress={onChooseManualMode}
+          >
+            <Text style={styles.secondaryActionText}>
+              自分で白紙のロードマップを作る
+            </Text>
           </Pressable>
         </View>
       ) : flowStep === "aiQuestions" ? (
@@ -443,7 +454,9 @@ export default function CreateScreen() {
         >
           <View style={styles.wizardCard}>
             <Text style={styles.wizardTitle}>AIに送る質問</Text>
-            <Text style={styles.wizardLabel}>{wizardQuestions[wizardStep].title}</Text>
+            <Text style={styles.wizardLabel}>
+              {wizardQuestions[wizardStep].title}
+            </Text>
             <InputField
               value={wizardQuestions[wizardStep].value}
               onChangeText={wizardQuestions[wizardStep].setter}
@@ -452,7 +465,10 @@ export default function CreateScreen() {
               multiline={wizardStep === 4}
             />
             <View style={styles.wizardFooter}>
-              <Pressable onPress={onBackWizard} style={styles.wizardButtonOutline}>
+              <Pressable
+                onPress={onBackWizard}
+                style={styles.wizardButtonOutline}
+              >
                 <Text style={styles.wizardButtonOutlineText}>戻る</Text>
               </Pressable>
               <Pressable onPress={onSubmitWizard} style={styles.wizardButton}>
@@ -465,7 +481,9 @@ export default function CreateScreen() {
                 </Text>
               </Pressable>
             </View>
-            <Text style={styles.smallHint}>{`ステップ ${wizardStep + 1} / ${wizardQuestions.length}`}</Text>
+            <Text
+              style={styles.smallHint}
+            >{`ステップ ${wizardStep + 1} / ${wizardQuestions.length}`}</Text>
           </View>
         </ScrollView>
       ) : (
@@ -482,10 +500,17 @@ export default function CreateScreen() {
                 style={styles.notificationButton}
                 onPress={() => router.push("/notifications")}
               >
-                <Ionicons name="notifications-outline" size={22} color="#FF5F00" />
+                <Ionicons
+                  name="notifications-outline"
+                  size={22}
+                  color="#FF5F00"
+                />
                 {notifications.length > 0 ? (
                   <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationBadgeText} numberOfLines={1}>
+                    <Text
+                      style={styles.notificationBadgeText}
+                      numberOfLines={1}
+                    >
                       {notifications.length}
                     </Text>
                   </View>
@@ -510,8 +535,13 @@ export default function CreateScreen() {
                 <Text style={styles.completionText}>
                   全てのマイルストーンをクリアしました。新しい目標を設定しましょう。
                 </Text>
-                <Pressable style={styles.primaryAction} onPress={onResetToIntro}>
-                  <Text style={styles.primaryActionText}>新しい目標を作成する</Text>
+                <Pressable
+                  style={styles.primaryAction}
+                  onPress={onResetToIntro}
+                >
+                  <Text style={styles.primaryActionText}>
+                    新しい目標を作成する
+                  </Text>
                 </Pressable>
               </View>
             ) : null}
@@ -589,7 +619,10 @@ export default function CreateScreen() {
                         >
                           {isCurrent ? (
                             <AnimatedView
-                              style={[styles.pulseRing, { transform: [{ scale: pulseAnim }] }]}
+                              style={[
+                                styles.pulseRing,
+                                { transform: [{ scale: pulseAnim }] },
+                              ]}
                             />
                           ) : null}
 
@@ -634,25 +667,43 @@ export default function CreateScreen() {
                             <Pressable
                               style={styles.editBadge}
                               onPress={() =>
-                                onOpenEdit(milestone.id, milestone.title, milestone.subtitle)
+                                onOpenEdit(
+                                  milestone.id,
+                                  milestone.title,
+                                  milestone.subtitle,
+                                )
                               }
                             >
-                              <Ionicons name="pencil" size={14} color="#FF5F00" />
+                              <Ionicons
+                                name="pencil"
+                                size={14}
+                                color="#FF5F00"
+                              />
                             </Pressable>
                             <Pressable
                               style={styles.nodeCard}
                               onPress={() =>
-                                router.push({ pathname: "/post-create", params: { milestoneId: milestone.id } })
+                                router.push({
+                                  pathname: "/post-create",
+                                  params: { milestoneId: milestone.id },
+                                })
                               }
                             >
-                              <Text style={styles.nodeMeta}>{`PHASE ${milestoneCounter}`}</Text>
                               <Text
-                                style={[styles.nodeTitle, isCurrent && styles.currentTitle]}
+                                style={styles.nodeMeta}
+                              >{`PHASE ${milestoneCounter}`}</Text>
+                              <Text
+                                style={[
+                                  styles.nodeTitle,
+                                  isCurrent && styles.currentTitle,
+                                ]}
                                 numberOfLines={1}
                               >
                                 {milestone.title}
                               </Text>
-                              <Text style={styles.nodeSub}>{milestone.subtitle}</Text>
+                              <Text style={styles.nodeSub}>
+                                {milestone.subtitle}
+                              </Text>
                             </Pressable>
                           </View>
                         </View>
@@ -671,7 +722,9 @@ export default function CreateScreen() {
                           >
                             <View style={styles.microDot} />
                           </Pressable>
-                          <Text style={styles.microLabel}>{item.step.title}</Text>
+                          <Text style={styles.microLabel}>
+                            {item.step.title}
+                          </Text>
                         </View>
                       );
                     }
@@ -692,40 +745,38 @@ export default function CreateScreen() {
               )}
             </View>
 
-            {(addTarget || editingMilestoneId || editingStepId) ? (
+            {addTarget || editingMilestoneId || editingStepId ? (
               <View style={styles.compactEditorPanel}>
                 <Text style={styles.compactEditorTitle}>
                   {editingMilestoneId
                     ? "マイルストーンを編集"
                     : editingStepId
-                    ? "短期目標を編集"
-                    : addTarget === "milestone"
-                    ? "マイルストーンを追加"
-                    : "短期目標を追加"}
+                      ? "短期目標を編集"
+                      : addTarget === "milestone"
+                        ? "マイルストーンを追加"
+                        : "短期目標を追加"}
                 </Text>
                 <InputField
                   value={
                     editingMilestoneId
                       ? editTitle
                       : addTarget === "milestone"
-                      ? newMilestoneTitle
-                      : editingStepId
-                      ? editStepTitle
-                      : newStepTitle
+                        ? newMilestoneTitle
+                        : editingStepId
+                          ? editStepTitle
+                          : newStepTitle
                   }
                   onChangeText={
                     editingMilestoneId
                       ? setEditTitle
                       : addTarget === "milestone"
-                      ? setNewMilestoneTitle
-                      : editingStepId
-                      ? setEditStepTitle
-                      : setNewStepTitle
+                        ? setNewMilestoneTitle
+                        : editingStepId
+                          ? setEditStepTitle
+                          : setNewStepTitle
                   }
                   placeholder={
-                    editingMilestoneId
-                      ? "マイルストーン名"
-                      : "短期目標名"
+                    editingMilestoneId ? "マイルストーン名" : "短期目標名"
                   }
                   style={styles.addInput}
                 />
@@ -734,26 +785,35 @@ export default function CreateScreen() {
                     editingMilestoneId
                       ? editSubtitle
                       : addTarget === "milestone"
-                      ? newMilestoneSubtitle
-                      : editingStepId
-                      ? editStepSubtitle
-                      : newStepSubtitle
+                        ? newMilestoneSubtitle
+                        : editingStepId
+                          ? editStepSubtitle
+                          : newStepSubtitle
                   }
                   onChangeText={
                     editingMilestoneId
                       ? setEditSubtitle
                       : addTarget === "milestone"
-                      ? setNewMilestoneSubtitle
-                      : editingStepId
-                      ? setEditStepSubtitle
-                      : setNewStepSubtitle
+                        ? setNewMilestoneSubtitle
+                        : editingStepId
+                          ? setEditStepSubtitle
+                          : setNewStepSubtitle
                   }
                   placeholder="補足説明"
                   style={styles.addInput}
                   multiline
                 />
                 <View style={styles.editActions}>
-                  <Pressable style={styles.editButtonOutline} onPress={editingMilestoneId ? onCancelEdit : editingStepId ? onCancelEditStep : onCancelAdd}>
+                  <Pressable
+                    style={styles.editButtonOutline}
+                    onPress={
+                      editingMilestoneId
+                        ? onCancelEdit
+                        : editingStepId
+                          ? onCancelEditStep
+                          : onCancelAdd
+                    }
+                  >
                     <Text style={styles.editButtonOutlineText}>キャンセル</Text>
                   </Pressable>
                   <Pressable
@@ -762,14 +822,16 @@ export default function CreateScreen() {
                       editingMilestoneId
                         ? onSaveEdit
                         : editingStepId
-                        ? onSaveEditStep
-                        : addTarget === "milestone"
-                        ? onAddMilestone
-                        : onAddStep
+                          ? onSaveEditStep
+                          : addTarget === "milestone"
+                            ? onAddMilestone
+                            : onAddStep
                     }
                   >
                     <Text style={styles.editButtonText}>
-                      {editingMilestoneId || editingStepId ? "保存" : "追加する"}
+                      {editingMilestoneId || editingStepId
+                        ? "保存"
+                        : "追加する"}
                     </Text>
                   </Pressable>
                 </View>
@@ -781,7 +843,9 @@ export default function CreateScreen() {
                 <Text style={styles.linkText}>最初に戻る</Text>
               </Pressable>
               <Pressable onPress={onClear}>
-                <Text style={styles.linkText}>現在のマイルストーンをクリア</Text>
+                <Text style={styles.linkText}>
+                  現在のマイルストーンをクリア
+                </Text>
               </Pressable>
             </View>
           </ScrollView>

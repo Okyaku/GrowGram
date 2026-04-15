@@ -108,10 +108,7 @@ type RoadmapContextType = {
     mode: BuildMode;
     level?: RoadmapLevel;
   }) => void;
-  addBlankRoadmap: (params: {
-    goal: string;
-    level?: RoadmapLevel;
-  }) => void;
+  addBlankRoadmap: (params: { goal: string; level?: RoadmapLevel }) => void;
   addMilestone: (params: {
     roadmapId: string;
     title: string;
