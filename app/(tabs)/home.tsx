@@ -512,6 +512,14 @@ export default function HomeScreen() {
         return false;
       };
 
+      const normalizeOwner = (recordOwner?: string | null) => {
+        if (!recordOwner) {
+          return "";
+        }
+
+        return recordOwner.split("::").pop() ?? recordOwner;
+      };
+
       const [
         postsResponse,
         profilesResponse,
@@ -668,8 +676,9 @@ export default function HomeScreen() {
 
       const dedupedLikeItems = validLikeItems.filter((item) => {
         const reactionType = item.reactionType;
-        const likeIdentity = item.owner
-          ? `${item.postId}:${reactionType ?? ""}:${item.owner}`
+        const normalizedOwner = normalizeOwner(item.owner);
+        const likeIdentity = normalizedOwner
+          ? `${item.postId}:${reactionType ?? ""}:${normalizedOwner}`
           : `id:${item.id}`;
         if (seenLikeIdentities.has(likeIdentity)) {
           return false;
