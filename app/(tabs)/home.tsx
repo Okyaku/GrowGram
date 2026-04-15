@@ -441,6 +441,9 @@ export default function HomeScreen() {
   const [reactionRecordIdByKey, setReactionRecordIdByKey] = React.useState<
     Record<string, string>
   >({});
+  const [reactionRecordIdsByKey, setReactionRecordIdsByKey] = React.useState<
+    Record<string, string[]>
+  >({});
   const [saveRecordIdByPost, setSaveRecordIdByPost] = React.useState<
     Record<string, string>
   >({});
@@ -455,6 +458,8 @@ export default function HomeScreen() {
   >({});
   const [commentLikeRecordIdByComment, setCommentLikeRecordIdByComment] =
     React.useState<Record<string, string>>({});
+  const [commentLikeRecordIdsByComment, setCommentLikeRecordIdsByComment] =
+    React.useState<Record<string, string[]>>({});
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     postId: string;
     label: string;
@@ -468,6 +473,8 @@ export default function HomeScreen() {
   const feedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const inFlightReactionKeysRef = React.useRef<Set<string>>(new Set());
+  const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
 
   const loadFeed = React.useCallback(async () => {
     try {
@@ -635,31 +642,49 @@ export default function HomeScreen() {
       const passionCountByPost: Record<string, number> = {};
       const logicCountByPost: Record<string, number> = {};
       const routineCountByPost: Record<string, number> = {};
+      const seenLikeIdentities = new Set<string>();
       const myReactionKeys = new Set<string>();
       const myReactionRecordIds: Record<string, string> = {};
-      likeItems
+      const myReactionRecordIdsByKey: Record<string, string[]> = {};
+      const dedupedLikeItems = likeItems
         .filter((item): item is CloudLike => Boolean(item?.id && item.postId))
-        .forEach((item) => {
+        .filter((item) => {
           const reactionType = item.reactionType;
-          if (reactionType === "passion") {
-            passionCountByPost[item.postId] =
-              (passionCountByPost[item.postId] ?? 0) + 1;
+          const likeIdentity = item.owner
+            ? `${item.postId}:${reactionType ?? ""}:${item.owner}`
+            : `id:${item.id}`;
+          if (seenLikeIdentities.has(likeIdentity)) {
+            return false;
           }
-          if (reactionType === "logic") {
-            logicCountByPost[item.postId] =
-              (logicCountByPost[item.postId] ?? 0) + 1;
-          }
-          if (reactionType === "routine") {
-            routineCountByPost[item.postId] =
-              (routineCountByPost[item.postId] ?? 0) + 1;
-          }
-
-          if (isOwnedByMe(item.owner)) {
-            const key = `${item.postId}:${reactionType ?? ""}`;
-            myReactionKeys.add(key);
-            myReactionRecordIds[key] = item.id;
-          }
+          seenLikeIdentities.add(likeIdentity);
+          return true;
         });
+
+      dedupedLikeItems.forEach((item) => {
+        const reactionType = item.reactionType;
+        if (reactionType === "passion") {
+          passionCountByPost[item.postId] =
+            (passionCountByPost[item.postId] ?? 0) + 1;
+        }
+        if (reactionType === "logic") {
+          logicCountByPost[item.postId] =
+            (logicCountByPost[item.postId] ?? 0) + 1;
+        }
+        if (reactionType === "routine") {
+          routineCountByPost[item.postId] =
+            (routineCountByPost[item.postId] ?? 0) + 1;
+        }
+
+        if (isOwnedByMe(item.owner)) {
+          const key = `${item.postId}:${reactionType ?? ""}`;
+          myReactionKeys.add(key);
+          if (!myReactionRecordIdsByKey[key]) {
+            myReactionRecordIdsByKey[key] = [];
+          }
+          myReactionRecordIdsByKey[key].push(item.id);
+          myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
+        }
+      });
 
       const saveCountByPost: Record<string, number> = {};
       const mySavedIds = new Set<string>();
@@ -678,6 +703,7 @@ export default function HomeScreen() {
       setReactionKeys(myReactionKeys);
       setSavedPostIds(mySavedIds);
       setReactionRecordIdByKey(myReactionRecordIds);
+      setReactionRecordIdsByKey(myReactionRecordIdsByKey);
       setSaveRecordIdByPost(mySaveRecordIds);
 
       const myPostIds = new Set(
@@ -704,10 +730,8 @@ export default function HomeScreen() {
           .map((item) => item.id),
       );
       const nextReactionBonusScore =
-        likeItems
-          .filter((item): item is CloudLike =>
-            Boolean(item?.id && item.postId && item.owner && item.reactionType),
-          )
+        dedupedLikeItems
+          .filter((item) => Boolean(item.owner && item.reactionType))
           .filter((item) => myPostIds.has(item.postId) && item.owner !== owner)
           .length *
           30 +
@@ -746,15 +770,30 @@ export default function HomeScreen() {
 
       const commentLikeCountByComment: Record<string, number> = {};
       const myCommentLikeRecordIds: Record<string, string> = {};
+      const myCommentLikeRecordIdsByComment: Record<string, string[]> = {};
+      const seenCommentLikeIdentities = new Set<string>();
       commentLikeItems
         .filter((item): item is CloudCommentLike =>
           Boolean(item?.id && item.commentId),
         )
         .forEach((item) => {
+          const identity = item.owner
+            ? `${item.commentId}:${item.owner}`
+            : `id:${item.id}`;
+          if (seenCommentLikeIdentities.has(identity)) {
+            return;
+          }
+          seenCommentLikeIdentities.add(identity);
+
           commentLikeCountByComment[item.commentId] =
             (commentLikeCountByComment[item.commentId] ?? 0) + 1;
           if (isOwnedByMe(item.owner)) {
-            myCommentLikeRecordIds[item.commentId] = item.id;
+            if (!myCommentLikeRecordIdsByComment[item.commentId]) {
+              myCommentLikeRecordIdsByComment[item.commentId] = [];
+            }
+            myCommentLikeRecordIdsByComment[item.commentId].push(item.id);
+            myCommentLikeRecordIds[item.commentId] =
+              myCommentLikeRecordIdsByComment[item.commentId][0];
           }
         });
 
@@ -793,6 +832,7 @@ export default function HomeScreen() {
       });
       setCommentsByPost(nextCommentsByPost);
       setCommentLikeRecordIdByComment(myCommentLikeRecordIds);
+      setCommentLikeRecordIdsByComment(myCommentLikeRecordIdsByComment);
 
       const normalizedPosts = postItems
         .filter((item): item is CloudPost => Boolean(item?.id && item.content))
@@ -970,33 +1010,72 @@ export default function HomeScreen() {
     return false;
   }, []);
 
+  const isDuplicateRecordError = React.useCallback((error: unknown) => {
+    const serialized = JSON.stringify(error);
+    return (
+      serialized.includes("already exists") ||
+      serialized.includes("ConditionalCheckFailedException")
+    );
+  }, []);
+
   const toggleReaction = React.useCallback(
     async (postId: string, reactionType: ReactionType) => {
+      const key = `${postId}:${reactionType}`;
+      if (inFlightReactionKeysRef.current.has(key)) {
+        return;
+      }
+      inFlightReactionKeysRef.current.add(key);
+
       try {
-        const key = `${postId}:${reactionType}`;
-        const existingId = reactionRecordIdByKey[key];
-        if (existingId) {
-          await client.graphql({
-            query: deletePostLikeMutation,
-            variables: { input: { id: existingId } },
-          });
+        const existingIds =
+          reactionRecordIdsByKey[key] ??
+          (reactionRecordIdByKey[key] ? [reactionRecordIdByKey[key]] : []);
+
+        if (existingIds.length > 0) {
+          await Promise.all(
+            Array.from(new Set(existingIds)).map((id) =>
+              client.graphql({
+                query: deletePostLikeMutation,
+                variables: { input: { id } },
+              }),
+            ),
+          );
         } else {
+          const actorId = currentOwner || currentUserId;
+          const normalizedActorId = actorId.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const deterministicId = `${postId}:${reactionType}:${normalizedActorId}`;
           await client.graphql({
             query: createPostLikeMutation,
-            variables: { input: { postId, reactionType } },
+            variables: {
+              input: { id: deterministicId, postId, reactionType },
+            },
           });
         }
         await loadFeed();
       } catch (error) {
-        if (isUnauthorizedGraphQLError(error)) {
+        if (
+          isUnauthorizedGraphQLError(error) ||
+          isDuplicateRecordError(error)
+        ) {
           await loadFeed();
           return;
         }
         console.error("[Home] failed to toggle reaction:", error);
         Alert.alert("失敗", "リアクション更新に失敗しました。");
+      } finally {
+        inFlightReactionKeysRef.current.delete(key);
       }
     },
-    [client, isUnauthorizedGraphQLError, loadFeed, reactionRecordIdByKey],
+    [
+      client,
+      currentOwner,
+      currentUserId,
+      isDuplicateRecordError,
+      isUnauthorizedGraphQLError,
+      loadFeed,
+      reactionRecordIdByKey,
+      reactionRecordIdsByKey,
+    ],
   );
 
   const clearTapState = React.useCallback((postId: string) => {
@@ -1276,32 +1355,60 @@ export default function HomeScreen() {
 
   const onToggleCommentLike = React.useCallback(
     async (comment: FeedComment) => {
+      if (inFlightCommentLikeIdsRef.current.has(comment.id)) {
+        return;
+      }
+      inFlightCommentLikeIdsRef.current.add(comment.id);
+
       try {
-        const existingId = commentLikeRecordIdByComment[comment.id];
-        if (existingId) {
-          await client.graphql({
-            query: deleteCommentLikeMutation,
-            variables: { input: { id: existingId } },
-          });
+        const existingIds =
+          commentLikeRecordIdsByComment[comment.id] ??
+          (commentLikeRecordIdByComment[comment.id]
+            ? [commentLikeRecordIdByComment[comment.id]]
+            : []);
+
+        if (existingIds.length > 0) {
+          await Promise.all(
+            Array.from(new Set(existingIds)).map((id) =>
+              client.graphql({
+                query: deleteCommentLikeMutation,
+                variables: { input: { id } },
+              }),
+            ),
+          );
         } else {
+          const actorId = currentOwner || currentUserId;
+          const normalizedActorId = actorId.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const deterministicId = `${comment.id}:${normalizedActorId}`;
           await client.graphql({
             query: createCommentLikeMutation,
-            variables: { input: { commentId: comment.id } },
+            variables: {
+              input: { id: deterministicId, commentId: comment.id },
+            },
           });
         }
         await loadFeed();
       } catch (error) {
-        if (isUnauthorizedGraphQLError(error)) {
+        if (
+          isUnauthorizedGraphQLError(error) ||
+          isDuplicateRecordError(error)
+        ) {
           await loadFeed();
           return;
         }
         console.error("[Home] failed to toggle comment like:", error);
         Alert.alert("失敗", "コメントいいね更新に失敗しました。");
+      } finally {
+        inFlightCommentLikeIdsRef.current.delete(comment.id);
       }
     },
     [
       client,
       commentLikeRecordIdByComment,
+      commentLikeRecordIdsByComment,
+      currentOwner,
+      currentUserId,
+      isDuplicateRecordError,
       isUnauthorizedGraphQLError,
       loadFeed,
     ],
@@ -1414,9 +1521,15 @@ export default function HomeScreen() {
               }
             >
               <View
-                style={[styles.storyRing, story.active && styles.storyRingActive]}
+                style={[
+                  styles.storyRing,
+                  story.active && styles.storyRingActive,
+                ]}
               >
-                <Image source={{ uri: story.image }} style={styles.storyAvatar} />
+                <Image
+                  source={{ uri: story.image }}
+                  style={styles.storyAvatar}
+                />
               </View>
               <Text style={styles.storyName} numberOfLines={1}>
                 {story.userName}
@@ -1565,207 +1678,217 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.postBottomSection}>
-            <Text style={styles.gestureHint}>
-              長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
-            </Text>
+              <Text style={styles.gestureHint}>
+                長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
+              </Text>
 
-            <Text style={styles.logLabel}>LOG:</Text>
-            <Text style={styles.log}>{post.log}</Text>
-            <View style={styles.tagRow}>
-              <Ionicons
-                name="pricetags"
-                size={14}
-                color={theme.colors.primary}
-              />
-              <Text style={styles.tags}>{post.tags.join(" ")}</Text>
-            </View>
-
-            <View style={styles.scoreRow}>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "passion");
-                  void toggleReaction(post.id, "passion");
-                }}
-              >
-                <Ionicons name="flame" size={14} color={theme.colors.primary} />
-                <Text style={styles.scoreLabel}>情熱 {post.passionCount}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "logic");
-                  void toggleReaction(post.id, "logic");
-                }}
-              >
-                <Ionicons name="bulb" size={14} color={theme.colors.primary} />
-                <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "routine");
-                  void toggleReaction(post.id, "routine");
-                }}
-              >
+              <Text style={styles.logLabel}>LOG:</Text>
+              <Text style={styles.log}>{post.log}</Text>
+              <View style={styles.tagRow}>
                 <Ionicons
-                  name="ribbon"
+                  name="pricetags"
                   size={14}
                   color={theme.colors.primary}
                 />
-                <Text style={styles.scoreLabel}>
-                  一貫性 {post.routineCount}
-                </Text>
-              </Pressable>
-            </View>
+                <Text style={styles.tags}>{post.tags.join(" ")}</Text>
+              </View>
 
-            <View style={styles.postActions}>
-              {!isOwner && (
+              <View style={styles.scoreRow}>
                 <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => void toggleSave(post.id)}
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "passion");
+                    void toggleReaction(post.id, "passion");
+                  }}
                 >
                   <Ionicons
-                    name={
-                      savedPostIds.has(post.id)
-                        ? "bookmark"
-                        : "bookmark-outline"
-                    }
-                    size={16}
-                    color={theme.colors.textSub}
-                  />
-                  <Text style={styles.postActionText}>
-                    保存 {post.saveCount}
-                  </Text>
-                </Pressable>
-              )}
-              <Pressable
-                style={styles.postActionItem}
-                onPress={() => void onRepost(post)}
-              >
-                <Ionicons
-                  name="repeat-outline"
-                  size={16}
-                  color={theme.colors.textSub}
-                />
-                <Text style={styles.postActionText}>再投稿</Text>
-              </Pressable>
-              {isOwner ? (
-                <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => onArchive(post)}
-                >
-                  <Ionicons
-                    name="archive-outline"
-                    size={16}
-                    color={theme.colors.textSub}
-                  />
-                  <Text style={styles.postActionText}>アーカイブ</Text>
-                </Pressable>
-              ) : null}
-              {isOwner ? (
-                <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => onDelete(post)}
-                >
-                  <Ionicons
-                    name="trash-outline"
-                    size={16}
-                    color={theme.colors.danger}
-                  />
-                  <Text
-                    style={[
-                      styles.postActionText,
-                      { color: theme.colors.danger },
-                    ]}
-                  >
-                    削除
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.commentSection}>
-              <Text style={styles.commentSectionTitle}>コメント</Text>
-              <View style={styles.commentInputRow}>
-                <TextInput
-                  value={commentInputByPost[post.id] ?? ""}
-                  onChangeText={(text) =>
-                    setCommentInputByPost((prev) => ({
-                      ...prev,
-                      [post.id]: text,
-                    }))
-                  }
-                  placeholder="コメントを書く（@username でメンション）"
-                  placeholderTextColor={theme.colors.textSub}
-                  style={styles.commentInput}
-                />
-                <Pressable
-                  style={styles.commentSendButton}
-                  onPress={() => void onSubmitComment(post.id)}
-                >
-                  <Ionicons
-                    name="send"
+                    name="flame"
                     size={14}
-                    color={theme.colors.onPrimary}
+                    color={theme.colors.primary}
                   />
+                  <Text style={styles.scoreLabel}>
+                    情熱 {post.passionCount}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "logic");
+                    void toggleReaction(post.id, "logic");
+                  }}
+                >
+                  <Ionicons
+                    name="bulb"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "routine");
+                    void toggleReaction(post.id, "routine");
+                  }}
+                >
+                  <Ionicons
+                    name="ribbon"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.scoreLabel}>
+                    一貫性 {post.routineCount}
+                  </Text>
                 </Pressable>
               </View>
 
-              {(commentsByPost[post.id] ?? []).length === 0 ? (
-                <Text style={styles.commentEmptyText}>
-                  最初のコメントをしてみよう。
-                </Text>
-              ) : null}
-
-              {(commentsByPost[post.id] ?? []).map((comment) => (
-                <View key={comment.id} style={styles.commentCard}>
-                  <View style={styles.commentHeaderRow}>
-                    <Pressable
-                      style={styles.commentOwnerRow}
-                      onPress={() => {
-                        if (comment.ownerId) {
-                          router.push(`/profile/${comment.ownerId}`);
-                        }
-                      }}
+              <View style={styles.postActions}>
+                {!isOwner && (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => void toggleSave(post.id)}
+                  >
+                    <Ionicons
+                      name={
+                        savedPostIds.has(post.id)
+                          ? "bookmark"
+                          : "bookmark-outline"
+                      }
+                      size={16}
+                      color={theme.colors.textSub}
+                    />
+                    <Text style={styles.postActionText}>
+                      保存 {post.saveCount}
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  style={styles.postActionItem}
+                  onPress={() => void onRepost(post)}
+                >
+                  <Ionicons
+                    name="repeat-outline"
+                    size={16}
+                    color={theme.colors.textSub}
+                  />
+                  <Text style={styles.postActionText}>再投稿</Text>
+                </Pressable>
+                {isOwner ? (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => onArchive(post)}
+                  >
+                    <Ionicons
+                      name="archive-outline"
+                      size={16}
+                      color={theme.colors.textSub}
+                    />
+                    <Text style={styles.postActionText}>アーカイブ</Text>
+                  </Pressable>
+                ) : null}
+                {isOwner ? (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => onDelete(post)}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={16}
+                      color={theme.colors.danger}
+                    />
+                    <Text
+                      style={[
+                        styles.postActionText,
+                        { color: theme.colors.danger },
+                      ]}
                     >
-                      {comment.ownerAvatar ? (
-                        <Image
-                          source={{ uri: comment.ownerAvatar }}
-                          style={styles.commentAvatar}
-                        />
-                      ) : (
-                        <View style={styles.commentAvatarPlaceholder} />
-                      )}
-                      <Text style={styles.commentOwner}>
-                        {comment.ownerName}
-                      </Text>
-                    </Pressable>
+                      削除
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
 
-                    <Pressable
-                      style={styles.commentLikeButton}
-                      onPress={() => void onToggleCommentLike(comment)}
-                    >
-                      <Ionicons
-                        name={comment.likedByMe ? "heart" : "heart-outline"}
-                        size={14}
-                        color={
-                          comment.likedByMe
-                            ? theme.colors.danger
-                            : theme.colors.textSub
-                        }
-                      />
-                      <Text style={styles.commentLikeText}>
-                        {comment.likeCount}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <Text style={styles.commentText}>
-                    {renderCommentContent(comment.content)}
-                  </Text>
+              <View style={styles.commentSection}>
+                <Text style={styles.commentSectionTitle}>コメント</Text>
+                <View style={styles.commentInputRow}>
+                  <TextInput
+                    value={commentInputByPost[post.id] ?? ""}
+                    onChangeText={(text) =>
+                      setCommentInputByPost((prev) => ({
+                        ...prev,
+                        [post.id]: text,
+                      }))
+                    }
+                    placeholder="コメントを書く（@username でメンション）"
+                    placeholderTextColor={theme.colors.textSub}
+                    style={styles.commentInput}
+                  />
+                  <Pressable
+                    style={styles.commentSendButton}
+                    onPress={() => void onSubmitComment(post.id)}
+                  >
+                    <Ionicons
+                      name="send"
+                      size={14}
+                      color={theme.colors.onPrimary}
+                    />
+                  </Pressable>
                 </View>
-              ))}
-            </View>
+
+                {(commentsByPost[post.id] ?? []).length === 0 ? (
+                  <Text style={styles.commentEmptyText}>
+                    最初のコメントをしてみよう。
+                  </Text>
+                ) : null}
+
+                {(commentsByPost[post.id] ?? []).map((comment) => (
+                  <View key={comment.id} style={styles.commentCard}>
+                    <View style={styles.commentHeaderRow}>
+                      <Pressable
+                        style={styles.commentOwnerRow}
+                        onPress={() => {
+                          if (comment.ownerId) {
+                            router.push(`/profile/${comment.ownerId}`);
+                          }
+                        }}
+                      >
+                        {comment.ownerAvatar ? (
+                          <Image
+                            source={{ uri: comment.ownerAvatar }}
+                            style={styles.commentAvatar}
+                          />
+                        ) : (
+                          <View style={styles.commentAvatarPlaceholder} />
+                        )}
+                        <Text style={styles.commentOwner}>
+                          {comment.ownerName}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.commentLikeButton}
+                        onPress={() => void onToggleCommentLike(comment)}
+                      >
+                        <Ionicons
+                          name={comment.likedByMe ? "heart" : "heart-outline"}
+                          size={14}
+                          color={
+                            comment.likedByMe
+                              ? theme.colors.danger
+                              : theme.colors.textSub
+                          }
+                        />
+                        <Text style={styles.commentLikeText}>
+                          {comment.likeCount}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.commentText}>
+                      {renderCommentContent(comment.content)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
           </View>
         );
