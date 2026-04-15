@@ -647,13 +647,13 @@ export default function HomeScreen() {
       const myReactionKeys = new Set<string>();
       const myReactionRecordIds: Record<string, string> = {};
       const myReactionRecordIdsByKey: Record<string, string[]> = {};
-      const validLikeItems = likeItems
-        .filter((item): item is CloudLike => Boolean(item?.id && item.postId))
-        .filter((item) => {
-          if (!isOwnedByMe(item.owner)) {
-            return true;
-          }
+      const validLikeItems = likeItems.filter((item): item is CloudLike =>
+        Boolean(item?.id && item.postId),
+      );
 
+      validLikeItems
+        .filter((item) => isOwnedByMe(item.owner))
+        .forEach((item) => {
           const key = `${item.postId}:${item.reactionType ?? ""}`;
           myReactionKeys.add(key);
           if (!myReactionRecordIdsByKey[key]) {
@@ -664,7 +664,6 @@ export default function HomeScreen() {
             new Set(myReactionRecordIdsByKey[key]),
           );
           myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
-          return true;
         });
 
       const dedupedLikeItems = validLikeItems.filter((item) => {
