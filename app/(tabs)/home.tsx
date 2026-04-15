@@ -1028,11 +1028,31 @@ export default function HomeScreen() {
   }, []);
 
   const isDuplicateRecordError = React.useCallback((error: unknown) => {
-    const serialized = JSON.stringify(error);
-    return (
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(error);
+    } catch {
+      serialized = "";
+    }
+
+    if (
       serialized.includes("already exists") ||
       serialized.includes("ConditionalCheckFailedException")
-    );
+    ) {
+      return true;
+    }
+
+    if (typeof error === "object" && error !== null && "message" in error) {
+      const message = String((error as { message?: unknown }).message ?? "");
+      if (
+        message.includes("already exists") ||
+        message.includes("ConditionalCheckFailedException")
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }, []);
 
   const toggleReaction = React.useCallback(
