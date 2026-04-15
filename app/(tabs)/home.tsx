@@ -475,6 +475,7 @@ export default function HomeScreen() {
   );
   const inFlightReactionKeysRef = React.useRef<Set<string>>(new Set());
   const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
+  const isIdentityReady = Boolean(currentOwner && currentUserId);
 
   const loadFeed = React.useCallback(async () => {
     try {
@@ -1057,6 +1058,10 @@ export default function HomeScreen() {
 
   const toggleReaction = React.useCallback(
     async (postId: string, reactionType: ReactionType) => {
+      if (!isIdentityReady) {
+        return;
+      }
+
       const key = `${postId}:${reactionType}`;
       if (inFlightReactionKeysRef.current.has(key)) {
         return;
@@ -1109,6 +1114,7 @@ export default function HomeScreen() {
       currentUserId,
       isDuplicateRecordError,
       isUnauthorizedGraphQLError,
+      isIdentityReady,
       loadFeed,
       reactionRecordIdByKey,
       reactionRecordIdsByKey,
@@ -1392,6 +1398,10 @@ export default function HomeScreen() {
 
   const onToggleCommentLike = React.useCallback(
     async (comment: FeedComment) => {
+      if (!isIdentityReady) {
+        return;
+      }
+
       if (inFlightCommentLikeIdsRef.current.has(comment.id)) {
         return;
       }
@@ -1447,6 +1457,7 @@ export default function HomeScreen() {
       currentUserId,
       isDuplicateRecordError,
       isUnauthorizedGraphQLError,
+      isIdentityReady,
       loadFeed,
     ],
   );
@@ -1732,7 +1743,11 @@ export default function HomeScreen() {
 
               <View style={styles.scoreRow}>
                 <Pressable
-                  style={styles.scoreItem}
+                  style={[
+                    styles.scoreItem,
+                    !isIdentityReady && styles.scoreItemDisabled,
+                  ]}
+                  disabled={!isIdentityReady}
                   onPress={() => {
                     showGestureFeedback(post.id, "passion");
                     void toggleReaction(post.id, "passion");
@@ -1748,7 +1763,11 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
                 <Pressable
-                  style={styles.scoreItem}
+                  style={[
+                    styles.scoreItem,
+                    !isIdentityReady && styles.scoreItemDisabled,
+                  ]}
+                  disabled={!isIdentityReady}
                   onPress={() => {
                     showGestureFeedback(post.id, "logic");
                     void toggleReaction(post.id, "logic");
@@ -1762,7 +1781,11 @@ export default function HomeScreen() {
                   <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
                 </Pressable>
                 <Pressable
-                  style={styles.scoreItem}
+                  style={[
+                    styles.scoreItem,
+                    !isIdentityReady && styles.scoreItemDisabled,
+                  ]}
+                  disabled={!isIdentityReady}
                   onPress={() => {
                     showGestureFeedback(post.id, "routine");
                     void toggleReaction(post.id, "routine");
@@ -1903,7 +1926,11 @@ export default function HomeScreen() {
                       </Pressable>
 
                       <Pressable
-                        style={styles.commentLikeButton}
+                        style={[
+                          styles.commentLikeButton,
+                          !isIdentityReady && styles.commentLikeButtonDisabled,
+                        ]}
+                        disabled={!isIdentityReady}
                         onPress={() => void onToggleCommentLike(comment)}
                       >
                         <Ionicons
@@ -2294,6 +2321,9 @@ const createStyles = () =>
       paddingHorizontal: 8,
       paddingVertical: 5,
     },
+    scoreItemDisabled: {
+      opacity: 0.45,
+    },
     scoreLabel: {
       color: theme.colors.text,
       fontSize: 12,
@@ -2399,6 +2429,9 @@ const createStyles = () =>
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
+    },
+    commentLikeButtonDisabled: {
+      opacity: 0.45,
     },
     commentLikeText: {
       color: theme.colors.textSub,
