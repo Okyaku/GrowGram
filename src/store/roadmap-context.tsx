@@ -108,6 +108,15 @@ type RoadmapContextType = {
     mode: BuildMode;
     level?: RoadmapLevel;
   }) => void;
+  addBlankRoadmap: (params: {
+    goal: string;
+    level?: RoadmapLevel;
+  }) => void;
+  addMilestone: (params: {
+    roadmapId: string;
+    title: string;
+    subtitle: string;
+  }) => void;
   generateRoadmap: (
     params: RoadmapGenerationParams,
   ) => Promise<{ success: boolean; roadmapId?: string }>;
@@ -572,6 +581,25 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
+  const createBlankRoadmapItem = (params: {
+    id: string;
+    goal: string;
+    level: RoadmapLevel;
+  }) => {
+    const safeGoal = params.goal.trim() || "未設定";
+    return {
+      id: params.id,
+      goal: safeGoal,
+      mode: "manual-level" as BuildMode,
+      level: params.level,
+      roadmapMilestones: [],
+      milestoneTemplates: [],
+      completedCount: 0,
+      unlockedMilestoneIds: [],
+      postedMilestoneIds: [],
+    } satisfies RoadmapItem;
+  };
+
   const addRoadmap: RoadmapContextType["addRoadmap"] = ({
     goal,
     mode,
@@ -600,6 +628,81 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       ...prev,
     ]);
+  };
+
+  const addBlankRoadmap: RoadmapContextType["addBlankRoadmap"] = ({
+    goal,
+    level = "normal",
+  }) => {
+    const newRoadmapId = `roadmap-${Date.now()}`;
+    const newRoadmap = createBlankRoadmapItem({
+      id: newRoadmapId,
+      goal,
+      level,
+    });
+
+    setRoadmaps((prev) => [...prev, newRoadmap]);
+    setActiveRoadmapId(newRoadmapId);
+    setNotifications((prev) => [
+      {
+        id: `n-add-${Date.now()}`,
+        message: `手動で新しいロードマップを作成しました。`,
+        time: nowText(),
+      },
+      ...prev,
+    ]);
+  };
+
+  const addMilestone: RoadmapContextType["addMilestone"] = ({
+    roadmapId,
+    title,
+    subtitle,
+  }) => {
+    const safeTitle = title.trim();
+    const safeSubtitle = subtitle.trim();
+    if (!safeTitle || !safeSubtitle) {
+      return;
+    }
+
+    setRoadmaps((prev) =>
+      prev.map((roadmap) => {
+        if (roadmap.id !== roadmapId) {
+          return roadmap;
+        }
+
+        const nextIndex = roadmap.milestoneTemplates.length + 1;
+        const milestoneId = `${roadmapId}-m${nextIndex}`;
+        const phaseId = `${roadmapId}-phase-${nextIndex}`;
+        const taskId = `${roadmapId}-task-${nextIndex}-1`;
+
+        return {
+          ...roadmap,
+          roadmapMilestones: [
+            ...roadmap.roadmapMilestones,
+            {
+              id: phaseId,
+              title: safeTitle,
+              description: safeSubtitle,
+              tasks: [
+                {
+                  id: taskId,
+                  title: safeTitle,
+                  description: safeSubtitle,
+                },
+              ],
+            },
+          ],
+          milestoneTemplates: [
+            ...roadmap.milestoneTemplates,
+            {
+              id: milestoneId,
+              title: safeTitle,
+              subtitle: safeSubtitle,
+            },
+          ],
+        };
+      }),
+    );
   };
 
   const generateRoadmap: RoadmapContextType["generateRoadmap"] = async ({
@@ -890,6 +993,8 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
         setActiveRoadmap: setActiveRoadmapId,
         moveRoadmap,
         addRoadmap,
+        addBlankRoadmap,
+        addMilestone,
         generateRoadmap,
         updateMilestone,
         recordDailyActivity,
