@@ -789,15 +789,13 @@ export default function HomeScreen() {
       const myCommentLikeRecordIds: Record<string, string> = {};
       const myCommentLikeRecordIdsByComment: Record<string, string[]> = {};
       const seenCommentLikeIdentities = new Set<string>();
-      const validCommentLikeItems = commentLikeItems
-        .filter((item): item is CloudCommentLike =>
-          Boolean(item?.id && item.commentId),
-        )
-        .filter((item) => {
-          if (!isOwnedByMe(item.owner)) {
-            return true;
-          }
+      const validCommentLikeItems = commentLikeItems.filter(
+        (item): item is CloudCommentLike => Boolean(item?.id && item.commentId),
+      );
 
+      validCommentLikeItems
+        .filter((item) => isOwnedByMe(item.owner))
+        .forEach((item) => {
           if (!myCommentLikeRecordIdsByComment[item.commentId]) {
             myCommentLikeRecordIdsByComment[item.commentId] = [];
           }
@@ -807,7 +805,6 @@ export default function HomeScreen() {
           );
           myCommentLikeRecordIds[item.commentId] =
             myCommentLikeRecordIdsByComment[item.commentId][0];
-          return true;
         });
 
       validCommentLikeItems.forEach((item) => {
