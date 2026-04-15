@@ -749,8 +749,9 @@ export default function HomeScreen() {
       const nextReactionBonusScore =
         dedupedLikeItems
           .filter((item) => Boolean(item.owner && item.reactionType))
-          .filter((item) => myPostIds.has(item.postId) && item.owner !== owner)
-          .length *
+          .filter(
+            (item) => myPostIds.has(item.postId) && !isOwnedByMe(item.owner),
+          ).length *
           30 +
         storyReactionItems
           .filter((item): item is CloudStoryReaction =>
