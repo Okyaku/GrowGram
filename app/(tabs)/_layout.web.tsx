@@ -1,9 +1,11 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Tabs } from "expo-router";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { getCurrentUser } from "aws-amplify/auth";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { TabScrollTopProvider } from "../../src/store/tab-scroll-top-context";
+import { Text } from "../../src/components/common/Typography";
 import { theme } from "../../src/theme";
 
 function TabIcon({
@@ -17,7 +19,51 @@ function TabIcon({
 }
 
 export default function TabsLayoutWeb() {
+  const styles = React.useMemo(() => createStyles(), []);
+  const router = useRouter();
   const { postCredits } = useRoadmap();
+  const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
+  const [isSignedIn, setIsSignedIn] = React.useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const ensureAuthenticated = async () => {
+      try {
+        await getCurrentUser();
+        if (isMounted) {
+          setIsSignedIn(true);
+        }
+      } catch {
+        if (isMounted) {
+          setIsSignedIn(false);
+          router.replace("/(auth)/login");
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingAuth(false);
+        }
+      }
+    };
+
+    void ensureAuthenticated();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  if (isCheckingAuth) {
+    return (
+      <View style={styles.authLoadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!isSignedIn) {
+    return null;
+  }
 
   return (
     <TabScrollTopProvider>
@@ -96,56 +142,63 @@ export default function TabsLayoutWeb() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabBar: {
-    height: 78,
-    paddingBottom: 10,
-    paddingTop: 8,
-    backgroundColor: theme.colors.white,
-    borderTopColor: theme.colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  createButton: {
-    top: -18,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  createIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: theme.colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 4,
-    borderColor: theme.colors.background,
-    ...theme.shadows.soft,
-  },
-  badge: {
-    position: "absolute",
-    top: 2,
-    right: 2,
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: theme.colors.danger,
-    borderWidth: 2,
-    borderColor: theme.colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: theme.colors.onPrimary,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    authLoadingContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.background,
+    },
+    tabBar: {
+      height: 78,
+      paddingBottom: 10,
+      paddingTop: 8,
+      backgroundColor: theme.colors.white,
+      borderTopColor: theme.colors.border,
+      borderTopWidth: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+    },
+    label: {
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 4,
+    },
+    createButton: {
+      top: -18,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    createIconWrap: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: theme.colors.primary,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 4,
+      borderColor: theme.colors.background,
+      ...theme.shadows.soft,
+    },
+    badge: {
+      position: "absolute",
+      top: 2,
+      right: 2,
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: theme.colors.danger,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
+    badgeText: {
+      color: theme.colors.onPrimary,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+  });

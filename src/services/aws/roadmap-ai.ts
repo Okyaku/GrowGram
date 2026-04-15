@@ -83,7 +83,7 @@ const normalizeMilestone = (milestone: unknown): AIRoadmapMilestone | null => {
 export async function generateRoadmapFromAI(
   input: AIRoadmapRequest,
 ): Promise<AIRoadmapResponse> {
-  const client = generateClient();
+  const client = generateClient({ authMode: "userPool" });
 
   const aiCall = client.graphql({
     query: generateRoadmapQuery,

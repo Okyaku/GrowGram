@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Pressable,
   ScrollView,
@@ -17,9 +16,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../src/components/common";
+import { Text } from "../src/components/common/Typography";
 import { theme } from "../src/theme";
 
-const client = generateClient();
+const client = generateClient({ authMode: "userPool" });
 
 interface Post {
   id: string;
@@ -96,13 +96,14 @@ const listPostsQuery = /* GraphQL */ `
 `;
 
 export default function SavedArchivedPostsScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"saved" | "archived">("saved");
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
   const [archivedPosts, setArchivedPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
-    null
+    null,
   );
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const imageScrollRef = useRef<ScrollView>(null);
@@ -153,9 +154,7 @@ export default function SavedArchivedPostsScreen() {
       })) as any;
 
       const posts = response.data?.listPosts?.items || [];
-      const archived = posts.filter(
-        (post: Post) => post.isArchived === true
-      );
+      const archived = posts.filter((post: Post) => post.isArchived === true);
 
       // 各投稿の画像URLを解決
       const postsWithUrls = await Promise.all(
@@ -172,7 +171,7 @@ export default function SavedArchivedPostsScreen() {
             }
           }
           return { ...post, imageUrls };
-        })
+        }),
       );
 
       setArchivedPosts(postsWithUrls);
@@ -209,7 +208,8 @@ export default function SavedArchivedPostsScreen() {
 
   const renderPostItem = ({ item }: { item: Post }) => {
     const scoreTotal = item.passion + item.logic + item.routine;
-    const imagesToShow = item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls : [];
+    const imagesToShow =
+      item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls : [];
 
     return (
       <Pressable
@@ -235,10 +235,7 @@ export default function SavedArchivedPostsScreen() {
             style={styles.imageContainer}
             onPress={() => handleImagePress(imagesToShow, 0)}
           >
-            <Image
-              source={{ uri: imagesToShow[0] }}
-              style={styles.postImage}
-            />
+            <Image source={{ uri: imagesToShow[0] }} style={styles.postImage} />
             {imagesToShow.length > 1 && (
               <View style={styles.imageCountBadge}>
                 <Text style={styles.imageCountText}>
@@ -300,10 +297,7 @@ export default function SavedArchivedPostsScreen() {
           {tabs.map((tab) => (
             <Pressable
               key={tab.key}
-              style={[
-                styles.tab,
-                activeTab === tab.key && styles.activeTab,
-              ]}
+              style={[styles.tab, activeTab === tab.key && styles.activeTab]}
               onPress={() => setActiveTab(tab.key)}
             >
               <Text
@@ -321,10 +315,7 @@ export default function SavedArchivedPostsScreen() {
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator
-            size="large"
-            color={theme.colors.primary}
-          />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
       ) : displayPosts.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -395,197 +386,198 @@ export default function SavedArchivedPostsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.surface,
-  },
-  content: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.md,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.md,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.white,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    padding: theme.spacing.xs,
-    marginBottom: theme.spacing.md,
-    marginHorizontal: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  activeTab: {
-    backgroundColor: theme.colors.primary,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: theme.colors.textSub,
-  },
-  activeTabText: {
-    color: theme.colors.white,
-    fontWeight: "700",
-  },
-  listContainer: {
-    flex: 1,
-  },
-  listContent: {
-    paddingBottom: theme.spacing.lg,
-    paddingHorizontal: theme.spacing.md,
-  },
-  postCard: {
-    backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  postHeader: {
-    marginBottom: theme.spacing.sm,
-  },
-  postTitle: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: theme.spacing.xs,
-  },
-  postDate: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  imageContainer: {
-    position: "relative",
-    marginBottom: theme.spacing.sm,
-    borderRadius: theme.radius.md,
-    overflow: "hidden",
-  },
-  postImage: {
-    width: "100%",
-    height: 200,
-    borderRadius: theme.radius.md,
-  },
-  imageCountBadge: {
-    position: "absolute",
-    bottom: theme.spacing.xs,
-    right: theme.spacing.xs,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: theme.spacing.xs,
-    paddingVertical: 2,
-    borderRadius: theme.radius.sm,
-  },
-  imageCountText: {
-    color: theme.colors.white,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  scoreContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing.sm,
-  },
-  scoreItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  scoreIcon: {
-    marginRight: 2,
-  },
-  scoreText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  scoreTotalText: {
-    marginLeft: "auto",
-    color: theme.colors.textSub,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: theme.spacing.md,
-  },
-  emptyText: {
-    color: theme.colors.textSub,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  closeButton: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    zIndex: 10,
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  imageScroll: {
-    width: "100%",
-    height: "100%",
-  },
-  imageFullscreen: {
-    width: 400,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  imageFullscreenImage: {
-    width: "90%",
-    height: "80%",
-    resizeMode: "contain",
-  },
-  imageIndicator: {
-    position: "absolute",
-    bottom: 20,
-    alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-    borderRadius: theme.radius.lg,
-  },
-  imageIndicatorText: {
-    color: theme.colors.white,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.surface,
+    },
+    content: {
+      paddingHorizontal: theme.spacing.md,
+      paddingTop: theme.spacing.md,
+    },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.md,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.white,
+    },
+    title: {
+      color: theme.colors.text,
+      fontSize: 20,
+      fontWeight: "900",
+    },
+    tabContainer: {
+      flexDirection: "row",
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.xs,
+      marginBottom: theme.spacing.md,
+      marginHorizontal: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    tab: {
+      flex: 1,
+      paddingVertical: theme.spacing.sm,
+      borderRadius: theme.radius.md,
+      alignItems: "center",
+    },
+    activeTab: {
+      backgroundColor: theme.colors.primary,
+    },
+    tabText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: theme.colors.textSub,
+    },
+    activeTabText: {
+      color: theme.colors.white,
+      fontWeight: "700",
+    },
+    listContainer: {
+      flex: 1,
+    },
+    listContent: {
+      paddingBottom: theme.spacing.lg,
+      paddingHorizontal: theme.spacing.md,
+    },
+    postCard: {
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    postHeader: {
+      marginBottom: theme.spacing.sm,
+    },
+    postTitle: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: "700",
+      marginBottom: theme.spacing.xs,
+    },
+    postDate: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    imageContainer: {
+      position: "relative",
+      marginBottom: theme.spacing.sm,
+      borderRadius: theme.radius.md,
+      overflow: "hidden",
+    },
+    postImage: {
+      width: "100%",
+      height: 200,
+      borderRadius: theme.radius.md,
+    },
+    imageCountBadge: {
+      position: "absolute",
+      bottom: theme.spacing.xs,
+      right: theme.spacing.xs,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      paddingHorizontal: theme.spacing.xs,
+      paddingVertical: 2,
+      borderRadius: theme.radius.sm,
+    },
+    imageCountText: {
+      color: theme.colors.white,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    scoreContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing.sm,
+    },
+    scoreItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    scoreIcon: {
+      marginRight: 2,
+    },
+    scoreText: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    scoreTotalText: {
+      marginLeft: "auto",
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    centerContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      gap: theme.spacing.md,
+    },
+    emptyText: {
+      color: theme.colors.textSub,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    // Modal Styles
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.95)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    closeButton: {
+      position: "absolute",
+      top: 16,
+      right: 16,
+      zIndex: 10,
+      width: 40,
+      height: 40,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    imageScroll: {
+      width: "100%",
+      height: "100%",
+    },
+    imageFullscreen: {
+      width: 400,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    imageFullscreenImage: {
+      width: "90%",
+      height: "80%",
+      resizeMode: "contain",
+    },
+    imageIndicator: {
+      position: "absolute",
+      bottom: 20,
+      alignSelf: "center",
+      backgroundColor: "rgba(0,0,0,0.6)",
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.xs,
+      borderRadius: theme.radius.lg,
+    },
+    imageIndicatorText: {
+      color: theme.colors.white,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+  });

@@ -1,12 +1,5 @@
 import React from "react";
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -14,10 +7,12 @@ import {
   InputField,
   ScreenContainer,
 } from "../src/components/common";
+import { Text } from "../src/components/common/Typography";
 import { useRoadmap } from "../src/store/roadmap-context";
 import { theme } from "../src/theme";
 
 export default function GoalSetupScreen() {
+  const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const {
     roadmaps,
@@ -485,6 +480,7 @@ export default function GoalSetupScreen() {
               }
               variant="outline"
               style={styles.editButton}
+              textStyle={styles.editButtonText}
             />
           </View>
         ))}
@@ -527,227 +523,232 @@ export default function GoalSetupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.md,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.white,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontWeight: "900",
-    marginBottom: 8,
-  },
-  tabsRow: {
-    gap: 8,
-    paddingBottom: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
-  tab: {
-    minWidth: 140,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 10,
-  },
-  tabActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.surface,
-  },
-  tabText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  tabTextActive: {
-    color: theme.colors.primary,
-  },
-  card: {
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-    ...theme.shadows.soft,
-  },
-  goalRow: {
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 10,
-    marginBottom: theme.spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  goalRowActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.white,
-  },
-  goalInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
-  goalIndex: {
-    color: theme.colors.textSub,
-    width: 26,
-    fontWeight: "800",
-  },
-  goalName: {
-    color: theme.colors.text,
-    fontWeight: "800",
-    flex: 1,
-  },
-  activeBadge: {
-    color: theme.colors.primary,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  goalActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  iconAction: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  helpText: {
-    color: theme.colors.textSub,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  cardTitle: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-    marginBottom: theme.spacing.sm,
-  },
-  modeRow: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  modeButton: {
-    flex: 1,
-    minHeight: 44,
-  },
-  levelRow: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  levelButton: {
-    flex: 1,
-    minHeight: 40,
-  },
-  stepHeader: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: theme.spacing.sm,
-  },
-  stepItem: {
-    flex: 1,
-    alignItems: "center",
-    gap: 4,
-  },
-  stepDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: theme.colors.border,
-  },
-  stepDotActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  stepDotDone: {
-    backgroundColor: theme.colors.success,
-  },
-  stepLabel: {
-    color: theme.colors.textSub,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  stepLabelActive: {
-    color: theme.colors.text,
-  },
-  stepDesc: {
-    color: theme.colors.textSub,
-    marginBottom: theme.spacing.sm,
-  },
-  inlineLabel: {
-    color: theme.colors.text,
-    fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 6,
-  },
-  multiline: {
-    minHeight: 90,
-    textAlignVertical: "top",
-    paddingTop: theme.spacing.sm,
-  },
-  errorText: {
-    color: theme.colors.danger,
-    fontSize: 12,
-    marginBottom: theme.spacing.sm,
-    lineHeight: 18,
-  },
-  milestoneCard: {
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-  },
-  milestoneTitle: {
-    color: theme.colors.text,
-    fontWeight: "800",
-    fontSize: 15,
-  },
-  milestoneSub: {
-    color: theme.colors.textSub,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  editButton: {
-    minHeight: 38,
-    width: 100,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-  },
-  actionBtn: {
-    flex: 1,
-    minHeight: 44,
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.spacing.md,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.white,
+    },
+    title: {
+      color: theme.colors.text,
+      fontSize: 20,
+      fontWeight: "900",
+    },
+    sectionTitle: {
+      color: theme.colors.text,
+      fontWeight: "900",
+      marginBottom: 8,
+    },
+    tabsRow: {
+      gap: 8,
+      paddingBottom: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+    },
+    tab: {
+      minWidth: 140,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: 10,
+    },
+    tabActive: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.colors.surface,
+    },
+    tabText: {
+      color: theme.colors.text,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    tabTextActive: {
+      color: theme.colors.primary,
+    },
+    card: {
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    goalRow: {
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: 10,
+      marginBottom: theme.spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    goalRowActive: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.colors.white,
+    },
+    goalInfo: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flex: 1,
+    },
+    goalIndex: {
+      color: theme.colors.textSub,
+      width: 26,
+      fontWeight: "800",
+    },
+    goalName: {
+      color: theme.colors.text,
+      fontWeight: "800",
+      flex: 1,
+    },
+    activeBadge: {
+      color: theme.colors.primary,
+      fontSize: 11,
+      fontWeight: "800",
+    },
+    goalActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    iconAction: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    helpText: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    cardTitle: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: "900",
+      marginBottom: theme.spacing.sm,
+    },
+    modeRow: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+    },
+    modeButton: {
+      flex: 1,
+      minHeight: 44,
+    },
+    levelRow: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+    },
+    levelButton: {
+      flex: 1,
+      minHeight: 40,
+    },
+    stepHeader: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: theme.spacing.sm,
+    },
+    stepItem: {
+      flex: 1,
+      alignItems: "center",
+      gap: 4,
+    },
+    stepDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: theme.colors.border,
+    },
+    stepDotActive: {
+      backgroundColor: theme.colors.primary,
+    },
+    stepDotDone: {
+      backgroundColor: theme.colors.success,
+    },
+    stepLabel: {
+      color: theme.colors.textSub,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    stepLabelActive: {
+      color: theme.colors.text,
+    },
+    stepDesc: {
+      color: theme.colors.textSub,
+      marginBottom: theme.spacing.sm,
+    },
+    inlineLabel: {
+      color: theme.colors.text,
+      fontSize: 13,
+      fontWeight: "800",
+      marginBottom: 6,
+    },
+    multiline: {
+      minHeight: 90,
+      textAlignVertical: "top",
+      paddingTop: theme.spacing.sm,
+    },
+    errorText: {
+      color: theme.colors.danger,
+      fontSize: 12,
+      marginBottom: theme.spacing.sm,
+      lineHeight: 18,
+    },
+    milestoneCard: {
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      padding: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+    },
+    milestoneTitle: {
+      color: theme.colors.text,
+      fontWeight: "800",
+      fontSize: 15,
+    },
+    milestoneSub: {
+      color: theme.colors.textSub,
+      marginTop: 4,
+      marginBottom: 8,
+    },
+    editButton: {
+      minHeight: 38,
+      width: 120,
+    },
+    editButtonText: {
+      fontSize: 14,
+      textAlign: "center",
+    },
+    actionRow: {
+      flexDirection: "row",
+      gap: theme.spacing.sm,
+    },
+    actionBtn: {
+      flex: 1,
+      minHeight: 44,
+    },
+  });

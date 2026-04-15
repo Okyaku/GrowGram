@@ -1,9 +1,20 @@
 import React from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { Tabs } from "expo-router";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { getCurrentUser } from "aws-amplify/auth";
+import { Text } from "../../src/components/common/Typography";
 import PagerView from "../../src/components/navigation/PagerViewCompat";
-import { TabScrollTopProvider, useTabScrollTop } from "../../src/store/tab-scroll-top-context";
+import {
+  TabScrollTopProvider,
+  useTabScrollTop,
+} from "../../src/store/tab-scroll-top-context";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { theme } from "../../src/theme";
 import HomeScreen from "./home";
@@ -37,7 +48,9 @@ function TabIcon({
   return <Ionicons name={name} size={22} color={color} />;
 }
 
-function NativeTabsLayout() {
+type TabsStyles = ReturnType<typeof createStyles>;
+
+function NativeTabsLayout({ styles }: { styles: TabsStyles }) {
   const { postCredits } = useRoadmap();
   const { scrollToTop } = useTabScrollTop();
   const pagerRef = React.useRef<any>(null);
@@ -138,7 +151,7 @@ function NativeTabsLayout() {
   );
 }
 
-function WebTabsLayout() {
+function WebTabsLayout({ styles }: { styles: TabsStyles }) {
   const { postCredits } = useRoadmap();
 
   return (
@@ -213,85 +226,141 @@ function WebTabsLayout() {
 }
 
 export default function TabsLayout() {
+  const styles = React.useMemo(() => createStyles(), []);
+  const router = useRouter();
+  const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
+  const [isSignedIn, setIsSignedIn] = React.useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const ensureAuthenticated = async () => {
+      try {
+        await getCurrentUser();
+        if (isMounted) {
+          setIsSignedIn(true);
+        }
+      } catch {
+        if (isMounted) {
+          setIsSignedIn(false);
+          router.replace("/(auth)/login");
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingAuth(false);
+        }
+      }
+    };
+
+    void ensureAuthenticated();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  if (isCheckingAuth) {
+    return (
+      <View style={styles.authLoadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!isSignedIn) {
+    return null;
+  }
+
   return (
     <TabScrollTopProvider>
-      {Platform.OS === "web" ? <WebTabsLayout /> : <NativeTabsLayout />}
+      {Platform.OS === "web" ? (
+        <WebTabsLayout styles={styles} />
+      ) : (
+        <NativeTabsLayout styles={styles} />
+      )}
     </TabScrollTopProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.white,
-  },
-  pagerView: {
-    flex: 1,
-  },
-  page: {
-    flex: 1,
-  },
-  tabBar: {
-    height: 78,
-    paddingBottom: 10,
-    paddingTop: 8,
-    backgroundColor: theme.colors.white,
-    borderTopColor: theme.colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  labelActive: {
-    color: theme.colors.primary,
-  },
-  labelInactive: {
-    color: theme.colors.textSub,
-  },
-  createButton: {
-    top: -18,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  createIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: theme.colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 4,
-    borderColor: theme.colors.background,
-    ...theme.shadows.soft,
-  },
-  badge: {
-    position: "absolute",
-    top: 2,
-    right: 2,
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: theme.colors.danger,
-    borderWidth: 2,
-    borderColor: theme.colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: theme.colors.onPrimary,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    authLoadingContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.background,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.white,
+    },
+    pagerView: {
+      flex: 1,
+    },
+    page: {
+      flex: 1,
+    },
+    tabBar: {
+      height: 78,
+      paddingBottom: 10,
+      paddingTop: 8,
+      backgroundColor: theme.colors.white,
+      borderTopColor: theme.colors.border,
+      borderTopWidth: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+    },
+    tab: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 8,
+    },
+    label: {
+      fontSize: 12,
+      fontWeight: "700",
+      marginTop: 4,
+    },
+    labelActive: {
+      color: theme.colors.primary,
+    },
+    labelInactive: {
+      color: theme.colors.textSub,
+    },
+    createButton: {
+      top: -18,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    createIconWrap: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: theme.colors.primary,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 4,
+      borderColor: theme.colors.background,
+      ...theme.shadows.soft,
+    },
+    badge: {
+      position: "absolute",
+      top: 2,
+      right: 2,
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: theme.colors.danger,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
+    badgeText: {
+      color: theme.colors.onPrimary,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+  });
