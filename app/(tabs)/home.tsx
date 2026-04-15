@@ -655,6 +655,7 @@ export default function HomeScreen() {
       const myReactionKeys = new Set<string>();
       const myReactionRecordIds: Record<string, string> = {};
       const myReactionRecordIdsByKey: Record<string, string[]> = {};
+      const myReactionRecordIdsByKeySet: Record<string, Set<string>> = {};
       const validLikeItems = likeItems.filter((item): item is CloudLike =>
         Boolean(item?.id && item.postId),
       );
@@ -664,15 +665,16 @@ export default function HomeScreen() {
         .forEach((item) => {
           const key = `${item.postId}:${item.reactionType ?? ""}`;
           myReactionKeys.add(key);
-          if (!myReactionRecordIdsByKey[key]) {
-            myReactionRecordIdsByKey[key] = [];
+          if (!myReactionRecordIdsByKeySet[key]) {
+            myReactionRecordIdsByKeySet[key] = new Set();
           }
-          myReactionRecordIdsByKey[key].push(item.id);
-          myReactionRecordIdsByKey[key] = Array.from(
-            new Set(myReactionRecordIdsByKey[key]),
-          );
-          myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
+          myReactionRecordIdsByKeySet[key].add(item.id);
         });
+
+      Object.entries(myReactionRecordIdsByKeySet).forEach(([key, idSet]) => {
+        myReactionRecordIdsByKey[key] = Array.from(idSet);
+        myReactionRecordIds[key] = myReactionRecordIdsByKey[key][0];
+      });
 
       const dedupedLikeItems = validLikeItems.filter((item) => {
         const reactionType = item.reactionType;
@@ -789,6 +791,10 @@ export default function HomeScreen() {
       const commentLikeCountByComment: Record<string, number> = {};
       const myCommentLikeRecordIds: Record<string, string> = {};
       const myCommentLikeRecordIdsByComment: Record<string, string[]> = {};
+      const myCommentLikeRecordIdsByCommentSet: Record<
+        string,
+        Set<string>
+      > = {};
       const seenCommentLikeIdentities = new Set<string>();
       const validCommentLikeItems = commentLikeItems.filter(
         (item): item is CloudCommentLike => Boolean(item?.id && item.commentId),
@@ -797,16 +803,19 @@ export default function HomeScreen() {
       validCommentLikeItems
         .filter((item) => isOwnedByMe(item.owner))
         .forEach((item) => {
-          if (!myCommentLikeRecordIdsByComment[item.commentId]) {
-            myCommentLikeRecordIdsByComment[item.commentId] = [];
+          if (!myCommentLikeRecordIdsByCommentSet[item.commentId]) {
+            myCommentLikeRecordIdsByCommentSet[item.commentId] = new Set();
           }
-          myCommentLikeRecordIdsByComment[item.commentId].push(item.id);
-          myCommentLikeRecordIdsByComment[item.commentId] = Array.from(
-            new Set(myCommentLikeRecordIdsByComment[item.commentId]),
-          );
-          myCommentLikeRecordIds[item.commentId] =
-            myCommentLikeRecordIdsByComment[item.commentId][0];
+          myCommentLikeRecordIdsByCommentSet[item.commentId].add(item.id);
         });
+
+      Object.entries(myCommentLikeRecordIdsByCommentSet).forEach(
+        ([commentId, idSet]) => {
+          myCommentLikeRecordIdsByComment[commentId] = Array.from(idSet);
+          myCommentLikeRecordIds[commentId] =
+            myCommentLikeRecordIdsByComment[commentId][0];
+        },
+      );
 
       validCommentLikeItems.forEach((item) => {
         const normalizedOwner = normalizeOwner(item.owner);
