@@ -1030,6 +1030,16 @@ export default function HomeScreen() {
         .filter((item): item is CloudStory =>
           Boolean(item?.id && item.imageKey),
         )
+        .filter((item) => {
+          if (!item.createdAt) {
+            return true;
+          }
+          const createdAtMs = new Date(item.createdAt).getTime();
+          if (Number.isNaN(createdAtMs)) {
+            return true;
+          }
+          return Date.now() - createdAtMs < 24 * 60 * 60 * 1000;
+        })
         .forEach((item) => {
           const storyOwner = item.owner ?? "";
           const current = storyByOwner.get(storyOwner);

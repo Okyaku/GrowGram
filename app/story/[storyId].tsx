@@ -1,11 +1,15 @@
 import React from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  GestureResponderEvent,
   ImageBackground,
   Pressable,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,8 +18,8 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
-import { useRoadmap } from "../../src/store/roadmap-context";
 import { theme } from "../../src/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type CloudStory = {
   id: string;
@@ -41,6 +45,60 @@ type StoryReaction = {
 };
 
 type ReactionType = "passion" | "logic" | "routine";
+type StoryQueueItem = CloudStory & { imageUrl: string };
+
+const STORY_DURATION_MS = 5000;
+const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
+const STORY_CLOSE_SWIPE_THRESHOLD = 80;
+const STORY_VIEWED_STORAGE_KEY = "story-viewed-by-owner-v1";
+const STORY_PLACEHOLDER_URL =
+  "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200";
+
+const readViewedStoryState = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(STORY_VIEWED_STORAGE_KEY);
+    if (!raw) {
+      return {} as Record<string, string[]>;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) {
+      return {} as Record<string, string[]>;
+    }
+
+    const next: Record<string, string[]> = {};
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        next[key] = value.filter(
+          (item): item is string => typeof item === "string",
+        );
+      }
+    });
+    return next;
+  } catch {
+    return {} as Record<string, string[]>;
+  }
+};
+
+const writeViewedStoryState = async (state: Record<string, string[]>) => {
+  try {
+    await AsyncStorage.setItem(STORY_VIEWED_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // 永続化失敗時も閲覧体験は継続する
+  }
+};
+
+const isStoryActive = (story: CloudStory) => {
+  if (!story.createdAt) {
+    return true;
+  }
+
+  const createdAtMs = new Date(story.createdAt).getTime();
+  if (Number.isNaN(createdAtMs)) {
+    return true;
+  }
+
+  return Date.now() - createdAtMs < STORY_EXPIRATION_MS;
+};
 
 const getStoryQuery = /* GraphQL */ `
   query GetStory($id: ID!) {
@@ -73,6 +131,21 @@ const listProfilesQuery = /* GraphQL */ `
         id
         owner
         username
+      }
+    }
+  }
+`;
+
+const listStoriesQuery = /* GraphQL */ `
+  query ListStories {
+    listStories(limit: 1000) {
+      items {
+        id
+        owner
+        imageKey
+        caption
+        createdAt
+        updatedAt
       }
     }
   }
@@ -120,36 +193,114 @@ const createDirectMessageMutation = /* GraphQL */ `
 export default function StoryViewScreen() {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const client = React.useMemo(
     () => generateClient({ authMode: "userPool" }),
     [],
   );
   const { storyId } = useLocalSearchParams<{ storyId: string }>();
   const [isLoading, setIsLoading] = React.useState(true);
-  const [story, setStory] = React.useState<CloudStory | null>(null);
+  const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>([]);
+  const [activeIndex, setActiveIndex] = React.useState(0);
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
   const [recipientUserId, setRecipientUserId] = React.useState("");
-  const [imageUrl, setImageUrl] = React.useState(
-    "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200",
-  );
+  const [reactionRecordIdByStory, setReactionRecordIdByStory] = React.useState<
+    Record<string, Record<string, string>>
+  >({});
   const [reactionRecordIdByType, setReactionRecordIdByType] = React.useState<
     Record<string, string>
   >({});
   const [currentUserId, setCurrentUserId] = React.useState("");
+  const [currentUsername, setCurrentUsername] = React.useState("");
+  const [viewedStoryIdsByOwner, setViewedStoryIdsByOwner] = React.useState<
+    Record<string, string[]>
+  >({});
   const [message, setMessage] = React.useState("");
   const [isSendingMessage, setIsSendingMessage] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [isPlaybackPaused, setIsPlaybackPaused] = React.useState(false);
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     label: string;
     icon: "flame" | "bulb" | "ribbon";
     backgroundColor: string;
     borderColor: string;
   } | null>(null);
-  const tapStateRef = React.useRef<{
-    count: number;
-    timer?: ReturnType<typeof setTimeout>;
-  }>({ count: 0 });
+  const dragY = React.useRef(new Animated.Value(0)).current;
   const feedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
+  );
+  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const suppressTapRef = React.useRef(false);
+  const story = storyQueue[activeIndex] ?? null;
+  const dragOpacity = React.useMemo(
+    () =>
+      dragY.interpolate({
+        inputRange: [0, 260],
+        outputRange: [1, 0.7],
+        extrapolate: "clamp",
+      }),
+    [dragY],
+  );
+  const backdropOpacity = React.useMemo(
+    () =>
+      dragY.interpolate({
+        inputRange: [0, 260],
+        outputRange: [0.94, 0],
+        extrapolate: "clamp",
+      }),
+    [dragY],
+  );
+  const closeStoryView = React.useCallback(() => {
+    router.back();
+  }, [router]);
+
+  const loadProfileByOwner = React.useCallback(
+    async (owner: string) => {
+      if (!owner) {
+        setProfile(null);
+        setRecipientUserId("");
+        return;
+      }
+
+      try {
+        const profileResponse = await client.graphql({
+          query: getProfileQuery,
+          variables: { id: owner },
+        });
+        const loadedProfile = (
+          profileResponse as { data?: { getProfile?: CloudProfile | null } }
+        ).data?.getProfile;
+        if (loadedProfile?.id) {
+          setProfile(loadedProfile);
+          setRecipientUserId(loadedProfile.id);
+          return;
+        }
+      } catch {
+        // getProfile(id: owner) が取れない場合は owner で list から逆引きする
+      }
+
+      try {
+        const profileListResponse = await client.graphql({
+          query: listProfilesQuery,
+        });
+        const profiles =
+          (
+            profileListResponse as {
+              data?: {
+                listProfiles?: { items?: Array<CloudProfile | null> };
+              };
+            }
+          ).data?.listProfiles?.items ?? [];
+        const matched = profiles.find((item) => item?.owner === owner) ?? null;
+        setProfile(matched ?? null);
+        setRecipientUserId(matched?.id ?? owner);
+      } catch {
+        setProfile(null);
+        setRecipientUserId(owner);
+      }
+    },
+    [client],
   );
 
   React.useEffect(() => {
@@ -170,99 +321,201 @@ export default function StoryViewScreen() {
         ).data?.getStory;
 
         if (!loadedStory) {
-          setStory(null);
+          setStoryQueue([]);
           return;
         }
-        setStory(loadedStory);
-
-        if (loadedStory.imageKey) {
-          try {
-            const resolved = await getUrl({ path: loadedStory.imageKey });
-            setImageUrl(resolved.url.toString());
-          } catch {
-            setImageUrl(
-              "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200",
-            );
-          }
+        if (!isStoryActive(loadedStory)) {
+          setStoryQueue([]);
+          Alert.alert(
+            "期限切れ",
+            "このストーリーは24時間を過ぎたため閲覧できません。",
+            [{ text: "戻る", onPress: () => router.back() }],
+          );
+          return;
         }
 
-        if (loadedStory.owner) {
-          try {
-            const profileResponse = await client.graphql({
-              query: getProfileQuery,
-              variables: { id: loadedStory.owner },
-            });
-            const loadedProfile = (
-              profileResponse as { data?: { getProfile?: CloudProfile | null } }
-            ).data?.getProfile;
-            if (loadedProfile?.id) {
-              setProfile(loadedProfile);
-              setRecipientUserId(loadedProfile.id);
-            } else {
-              const profileListResponse = await client.graphql({
-                query: listProfilesQuery,
-              });
-              const profiles =
-                (
-                  profileListResponse as {
-                    data?: {
-                      listProfiles?: { items?: Array<CloudProfile | null> };
-                    };
-                  }
-                ).data?.listProfiles?.items ?? [];
-              const matched =
-                profiles.find((item) => item?.owner === loadedStory.owner) ??
-                null;
-              setProfile(matched ?? null);
-              setRecipientUserId(matched?.id ?? loadedStory.owner);
+        const storiesResponse = await client.graphql({
+          query: listStoriesQuery,
+        });
+        const stories =
+          (
+            storiesResponse as {
+              data?: { listStories?: { items?: Array<CloudStory | null> } };
             }
-          } catch {
-            setProfile(null);
-            setRecipientUserId(loadedStory.owner);
-          }
-        }
+          ).data?.listStories?.items ?? [];
 
-        try {
-          const currentUser = await getCurrentUser();
-          setCurrentUserId(currentUser.userId);
-          const reactionsResponse = await client.graphql({
-            query: listStoryReactionsQuery,
+        const sameOwnerStories = stories
+          .filter((item): item is CloudStory =>
+            Boolean(
+              item?.id && item.imageKey && item.owner === loadedStory.owner,
+            ),
+          )
+          .filter((item) => isStoryActive(item))
+          .sort((a, b) => {
+            const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return at - bt;
           });
-          const items =
-            (
-              reactionsResponse as {
-                data?: {
-                  listStoryReactions?: { items?: Array<StoryReaction | null> };
-                };
-              }
-            ).data?.listStoryReactions?.items ?? [];
 
-          const mine: Record<string, string> = {};
-          items
-            .filter((item): item is StoryReaction =>
-              Boolean(item?.id && item.storyId && item.reactionType),
-            )
-            .filter(
-              (item) =>
-                item.storyId === loadedStory.id &&
-                item.owner === currentUser.username,
-            )
-            .forEach((item) => {
-              if (item.reactionType) {
-                mine[item.reactionType] = item.id;
-              }
-            });
-          setReactionRecordIdByType(mine);
-        } catch {
-          setReactionRecordIdByType({});
-        }
+        const queue =
+          sameOwnerStories.length > 0 ? sameOwnerStories : [loadedStory];
+        const queueWithImage = await Promise.all(
+          queue.map(async (item) => {
+            let resolvedImageUrl = STORY_PLACEHOLDER_URL;
+            try {
+              const resolved = await getUrl({ path: item.imageKey });
+              resolvedImageUrl = resolved.url.toString();
+            } catch {
+              resolvedImageUrl = STORY_PLACEHOLDER_URL;
+            }
+
+            return {
+              ...item,
+              imageUrl: resolvedImageUrl,
+            } satisfies StoryQueueItem;
+          }),
+        );
+
+        setStoryQueue(queueWithImage);
+        const ownerKey = loadedStory.owner ?? "";
+        const queueIdSet = new Set(queueWithImage.map((item) => item.id));
+        const viewedState = await readViewedStoryState();
+        const normalizedOwnerViewed = (viewedState[ownerKey] ?? []).filter(
+          (id) => queueIdSet.has(id),
+        );
+        const normalizedViewedState: Record<string, string[]> = {
+          ...viewedState,
+          [ownerKey]: normalizedOwnerViewed,
+        };
+        setViewedStoryIdsByOwner(normalizedViewedState);
+        void writeViewedStoryState(normalizedViewedState);
+
+        const viewedSet = new Set(normalizedOwnerViewed);
+        const firstUnreadIndex = queueWithImage.findIndex(
+          (item) => !viewedSet.has(item.id),
+        );
+        const firstIndex = firstUnreadIndex >= 0 ? firstUnreadIndex : 0;
+        setActiveIndex(firstIndex);
+
+        const currentUser = await getCurrentUser();
+        setCurrentUserId(currentUser.userId);
+        const username = currentUser.username ?? "";
+        setCurrentUsername(username);
+
+        await loadProfileByOwner(loadedStory.owner ?? "");
+
+        const reactionsResponse = await client.graphql({
+          query: listStoryReactionsQuery,
+        });
+        const reactionItems =
+          (
+            reactionsResponse as {
+              data?: {
+                listStoryReactions?: { items?: Array<StoryReaction | null> };
+              };
+            }
+          ).data?.listStoryReactions?.items ?? [];
+
+        const nextReactionMap: Record<string, Record<string, string>> = {};
+        reactionItems
+          .filter((item): item is StoryReaction =>
+            Boolean(item?.id && item.storyId && item.reactionType),
+          )
+          .filter((item) => item.owner === username)
+          .forEach((item) => {
+            if (!nextReactionMap[item.storyId]) {
+              nextReactionMap[item.storyId] = {};
+            }
+            nextReactionMap[item.storyId][item.reactionType ?? ""] = item.id;
+          });
+
+        setReactionRecordIdByStory(nextReactionMap);
+        setReactionRecordIdByType(
+          nextReactionMap[queueWithImage[firstIndex]?.id ?? ""] ?? {},
+        );
+        setProgress(0);
       } catch (error) {
         console.error("[StoryView] failed to load story:", error);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, [client, storyId]);
+  }, [client, loadProfileByOwner, router, storyId]);
+
+  React.useEffect(() => {
+    if (!story?.id) {
+      return;
+    }
+
+    const ownerKey = story.owner ?? "";
+    setViewedStoryIdsByOwner((prev) => {
+      const current = prev[ownerKey] ?? [];
+      if (current.includes(story.id)) {
+        return prev;
+      }
+
+      const next = {
+        ...prev,
+        [ownerKey]: [...current, story.id],
+      };
+      void writeViewedStoryState(next);
+      return next;
+    });
+  }, [story?.id, story?.owner]);
+
+  React.useEffect(() => {
+    if (!story) {
+      setReactionRecordIdByType({});
+      return;
+    }
+    setReactionRecordIdByType(reactionRecordIdByStory[story.id] ?? {});
+    setProgress(0);
+  }, [activeIndex, reactionRecordIdByStory, story]);
+
+  React.useEffect(() => {
+    if (!story || isPlaybackPaused) {
+      return;
+    }
+
+    const tickMs = 50;
+    const step = tickMs / STORY_DURATION_MS;
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        const next = prev + step;
+        return next >= 1 ? 1 : next;
+      });
+    }, tickMs);
+
+    return () => clearInterval(timer);
+  }, [isPlaybackPaused, story]);
+
+  const goNextStory = React.useCallback(() => {
+    if (activeIndex >= storyQueue.length - 1) {
+      router.back();
+      return;
+    }
+
+    setProgress(0);
+    setActiveIndex((prev) => prev + 1);
+  }, [activeIndex, router, storyQueue.length]);
+
+  const goPreviousStory = React.useCallback(() => {
+    if (activeIndex <= 0) {
+      return;
+    }
+
+    setProgress(0);
+    setActiveIndex((prev) => prev - 1);
+  }, [activeIndex]);
+
+  React.useEffect(() => {
+    if (!story || isPlaybackPaused) {
+      return;
+    }
+    if (progress >= 1) {
+      goNextStory();
+    }
+  }, [goNextStory, isPlaybackPaused, progress, story]);
 
   const displayName =
     profile?.username || (story?.owner ?? "USER").split("@")[0].toUpperCase();
@@ -278,15 +531,17 @@ export default function StoryViewScreen() {
       }
 
       try {
-        const existingId = reactionRecordIdByType[reactionType];
+        const existingId = reactionRecordIdByStory[story.id]?.[reactionType];
         if (existingId) {
           await client.graphql({
             query: deleteStoryReactionMutation,
             variables: { input: { id: existingId } },
           });
-          setReactionRecordIdByType((prev) => {
+          setReactionRecordIdByStory((prev) => {
             const next = { ...prev };
-            delete next[reactionType];
+            const nextStoryMap = { ...(next[story.id] ?? {}) };
+            delete nextStoryMap[reactionType];
+            next[story.id] = nextStoryMap;
             return next;
           });
         } else {
@@ -298,9 +553,12 @@ export default function StoryViewScreen() {
             (response as { data?: { createStoryReaction?: { id?: string } } })
               .data?.createStoryReaction?.id ?? "";
           if (createdId) {
-            setReactionRecordIdByType((prev) => ({
+            setReactionRecordIdByStory((prev) => ({
               ...prev,
-              [reactionType]: createdId,
+              [story.id]: {
+                ...(prev[story.id] ?? {}),
+                [reactionType]: createdId,
+              },
             }));
           }
         }
@@ -308,7 +566,7 @@ export default function StoryViewScreen() {
         console.error("[StoryView] failed to toggle reaction:", error);
       }
     },
-    [client, reactionRecordIdByType, story?.id],
+    [client, reactionRecordIdByStory, story],
   );
 
   const showGestureFeedback = React.useCallback((type: ReactionType) => {
@@ -346,39 +604,94 @@ export default function StoryViewScreen() {
     }, 650);
   }, []);
 
-  const clearTapState = React.useCallback(() => {
-    if (tapStateRef.current.timer) {
-      clearTimeout(tapStateRef.current.timer);
-    }
-    tapStateRef.current = { count: 0 };
-  }, []);
-
-  const onStoryLongPress = React.useCallback(() => {
-    clearTapState();
-    showGestureFeedback("passion");
-    void toggleStoryReaction("passion");
-  }, [clearTapState, showGestureFeedback, toggleStoryReaction]);
-
-  const onStoryTap = React.useCallback(() => {
-    const state = tapStateRef.current;
-    if (state.timer) {
-      clearTimeout(state.timer);
-    }
-    state.count += 1;
-    state.timer = setTimeout(() => {
-      const count = state.count;
-      tapStateRef.current = { count: 0 };
-      if (count >= 3) {
-        showGestureFeedback("routine");
-        void toggleStoryReaction("routine");
+  const onHeroTap = React.useCallback(
+    (event: { nativeEvent: { locationX: number } }) => {
+      if (suppressTapRef.current) {
+        suppressTapRef.current = false;
         return;
       }
-      if (count === 2) {
-        showGestureFeedback("logic");
-        void toggleStoryReaction("logic");
+      const tapX = event.nativeEvent.locationX;
+      if (tapX < width * 0.35) {
+        goPreviousStory();
+        return;
       }
-    }, 280);
-  }, [showGestureFeedback, toggleStoryReaction]);
+      goNextStory();
+    },
+    [goNextStory, goPreviousStory, width],
+  );
+
+  const onHeroTouchStart = React.useCallback((event: GestureResponderEvent) => {
+    touchStartRef.current = {
+      x: event.nativeEvent.pageX,
+      y: event.nativeEvent.pageY,
+    };
+    suppressTapRef.current = false;
+  }, []);
+
+  const onHeroTouchMove = React.useCallback(
+    (event: GestureResponderEvent) => {
+      if (!touchStartRef.current) {
+        return;
+      }
+
+      const dx = event.nativeEvent.pageX - touchStartRef.current.x;
+      const dy = event.nativeEvent.pageY - touchStartRef.current.y;
+      const isVertical = Math.abs(dy) > Math.abs(dx);
+      if (!isVertical || dy <= 10) {
+        return;
+      }
+
+      setIsPlaybackPaused(true);
+      dragY.setValue(dy);
+      if (dy > STORY_CLOSE_SWIPE_THRESHOLD) {
+        suppressTapRef.current = true;
+      }
+    },
+    [dragY],
+  );
+
+  const onHeroTouchEnd = React.useCallback(
+    (event: GestureResponderEvent) => {
+      if (!touchStartRef.current) {
+        setIsPlaybackPaused(false);
+        return;
+      }
+
+      const dx = event.nativeEvent.pageX - touchStartRef.current.x;
+      const dy = event.nativeEvent.pageY - touchStartRef.current.y;
+      const isVertical = Math.abs(dy) > Math.abs(dx);
+      touchStartRef.current = null;
+
+      if (isVertical && dy > STORY_CLOSE_SWIPE_THRESHOLD) {
+        Animated.timing(dragY, {
+          toValue: 420,
+          duration: 140,
+          useNativeDriver: true,
+        }).start(() => {
+          closeStoryView();
+        });
+        return;
+      }
+
+      Animated.spring(dragY, {
+        toValue: 0,
+        damping: 18,
+        stiffness: 210,
+        mass: 0.6,
+        useNativeDriver: true,
+      }).start();
+      setIsPlaybackPaused(false);
+    },
+    [closeStoryView, dragY],
+  );
+
+  const onToggleReaction = React.useCallback(
+    (type: ReactionType) => {
+      showGestureFeedback(type);
+      void toggleStoryReaction(type);
+    },
+    [showGestureFeedback, toggleStoryReaction],
+  );
 
   const onSendStoryMessage = React.useCallback(async () => {
     if (!story?.id || !recipientUserId || !currentUserId || isSendingMessage) {
@@ -428,9 +741,6 @@ export default function StoryViewScreen() {
 
   React.useEffect(() => {
     return () => {
-      if (tapStateRef.current.timer) {
-        clearTimeout(tapStateRef.current.timer);
-      }
       if (feedbackTimerRef.current) {
         clearTimeout(feedbackTimerRef.current);
       }
@@ -464,26 +774,60 @@ export default function StoryViewScreen() {
   }
 
   return (
-    <ScreenContainer padded={false}>
-      <View style={styles.container}>
+    <View style={styles.modalRoot}>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.backdrop, { opacity: backdropOpacity }]}
+      />
+      <Animated.View
+        style={[
+          styles.container,
+          {
+            opacity: dragOpacity,
+            transform: [{ translateY: dragY }],
+          },
+        ]}
+      >
         <ImageBackground
-          source={{ uri: imageUrl }}
+          source={{ uri: story.imageUrl ?? STORY_PLACEHOLDER_URL }}
           style={styles.hero}
           imageStyle={styles.heroImage}
           resizeMode="contain"
         >
           <Pressable
             style={styles.heroOverlay}
-            onPress={onStoryTap}
-            onLongPress={onStoryLongPress}
+            onPress={onHeroTap}
+            onPressIn={() => setIsPlaybackPaused(true)}
+            onPressOut={() => setIsPlaybackPaused(false)}
+            onTouchStart={onHeroTouchStart}
+            onTouchMove={onHeroTouchMove}
+            onTouchEnd={onHeroTouchEnd}
+            onTouchCancel={() => {
+              touchStartRef.current = null;
+              setIsPlaybackPaused(false);
+            }}
           >
-            <View style={styles.topBars}>
-              {[1, 2, 3, 4].map((item) => (
-                <View
-                  key={item}
-                  style={[styles.bar, item === 2 && styles.barActive]}
-                />
-              ))}
+            <View
+              style={[
+                styles.topBars,
+                { paddingTop: theme.spacing.md + insets.top },
+              ]}
+            >
+              {storyQueue.map((item, index) => {
+                const isDone = index < activeIndex;
+                const isCurrent = index === activeIndex;
+                const fill = isDone ? 1 : isCurrent ? progress : 0;
+                return (
+                  <View key={item.id} style={styles.bar}>
+                    <View
+                      style={[
+                        styles.barFill,
+                        { width: `${Math.max(0, Math.min(1, fill)) * 100}%` },
+                      ]}
+                    />
+                  </View>
+                );
+              })}
             </View>
 
             <View style={styles.topRow}>
@@ -530,45 +874,41 @@ export default function StoryViewScreen() {
           </Pressable>
         </ImageBackground>
 
-        <View style={styles.bottomPanel}>
+        <View style={[styles.bottomPanel, { paddingBottom: theme.spacing.md }]}>
           {story.caption ? (
             <Text style={styles.caption}>{story.caption}</Text>
           ) : null}
-          <Text style={styles.reactionTitle}>REACTION GUIDE</Text>
-          <Text style={styles.reactionGuideHint}>
-            長押し: 情熱 / 2回タップ: 論理 / 3回タップ: 一貫性
-          </Text>
           <View style={styles.row}>
-            <View
+            <Pressable
               style={[
                 styles.reactionBox,
                 reactionRecordIdByType.passion && styles.reactionBoxActive,
               ]}
+              onPress={() => onToggleReaction("passion")}
             >
               <Ionicons name="flame" size={18} color={theme.colors.primary} />
               <Text style={styles.reactionLabel}>情熱</Text>
-              <Text style={styles.reactionHint}>長押し</Text>
-            </View>
-            <View
+            </Pressable>
+            <Pressable
               style={[
                 styles.reactionBox,
                 reactionRecordIdByType.logic && styles.reactionBoxActive,
               ]}
+              onPress={() => onToggleReaction("logic")}
             >
               <Ionicons name="bulb" size={18} color={theme.colors.primary} />
               <Text style={styles.reactionLabel}>論理</Text>
-              <Text style={styles.reactionHint}>2回タップ</Text>
-            </View>
-            <View
+            </Pressable>
+            <Pressable
               style={[
                 styles.reactionBox,
                 reactionRecordIdByType.routine && styles.reactionBoxActive,
               ]}
+              onPress={() => onToggleReaction("routine")}
             >
               <Ionicons name="ribbon" size={18} color={theme.colors.primary} />
               <Text style={styles.reactionLabel}>一貫性</Text>
-              <Text style={styles.reactionHint}>3回タップ</Text>
-            </View>
+            </Pressable>
           </View>
 
           <View style={styles.inputRow}>
@@ -591,20 +931,28 @@ export default function StoryViewScreen() {
             </Pressable>
           </View>
         </View>
-      </View>
-    </ScreenContainer>
+      </Animated.View>
+    </View>
   );
 }
 
 const createStyles = () =>
   StyleSheet.create({
+    modalRoot: {
+      flex: 1,
+      backgroundColor: "transparent",
+    },
+    backdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "#000000",
+    },
     container: {
       flex: 1,
       backgroundColor: theme.colors.surface,
     },
     hero: {
       width: "100%",
-      aspectRatio: 9 / 13,
+      flex: 1,
       justifyContent: "space-between",
       backgroundColor: "#111111",
     },
@@ -664,10 +1012,13 @@ const createStyles = () =>
       flex: 1,
       height: 4,
       borderRadius: 2,
-      backgroundColor: theme.colors.border,
+      backgroundColor: "rgba(255,255,255,0.35)",
+      overflow: "hidden",
     },
-    barActive: {
-      backgroundColor: theme.colors.primary,
+    barFill: {
+      height: "100%",
+      borderRadius: 2,
+      backgroundColor: theme.colors.white,
     },
     topRow: {
       flexDirection: "row",
@@ -699,7 +1050,7 @@ const createStyles = () =>
     bottomPanel: {
       padding: theme.spacing.md,
       backgroundColor: theme.colors.white,
-      flex: 1,
+      justifyContent: "flex-end",
     },
     caption: {
       color: theme.colors.text,
@@ -722,8 +1073,8 @@ const createStyles = () =>
     },
     row: {
       flexDirection: "row",
-      gap: theme.spacing.sm,
-      marginBottom: theme.spacing.md,
+      gap: 8,
+      marginBottom: 10,
     },
     reactionBox: {
       flex: 1,
@@ -732,7 +1083,8 @@ const createStyles = () =>
       borderColor: theme.colors.border,
       backgroundColor: theme.colors.surface,
       alignItems: "center",
-      paddingVertical: theme.spacing.sm,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
     },
     reactionBoxActive: {
       borderColor: theme.colors.primary,
@@ -740,13 +1092,7 @@ const createStyles = () =>
     },
     reactionLabel: {
       color: theme.colors.text,
-      marginTop: 6,
-      fontWeight: "700",
-    },
-    reactionHint: {
-      color: theme.colors.primary,
-      marginTop: 2,
-      fontSize: 12,
+      marginTop: 4,
       fontWeight: "700",
     },
     inputRow: {
