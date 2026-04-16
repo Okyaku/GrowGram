@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -534,6 +535,8 @@ export default function HomeScreen() {
   );
   const inFlightReactionKeysRef = React.useRef<Set<string>>(new Set());
   const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
+  const hasLoadedInitialFeedRef = React.useRef(false);
+  const [isInitialFeedLoading, setIsInitialFeedLoading] = React.useState(true);
   const isIdentityReady = Boolean(currentOwner && currentUserId);
 
   const deleteRecordsInBatches = React.useCallback(
@@ -568,6 +571,11 @@ export default function HomeScreen() {
   );
 
   const loadFeed = React.useCallback(async () => {
+    const shouldBlockInitialRender = !hasLoadedInitialFeedRef.current;
+    if (shouldBlockInitialRender) {
+      setIsInitialFeedLoading(true);
+    }
+
     try {
       let owner = "";
       let me = "";
@@ -582,6 +590,8 @@ export default function HomeScreen() {
         setPosts(fallbackPosts);
         setStories([]);
         setUnreadChatCount(0);
+        hasLoadedInitialFeedRef.current = true;
+        setIsInitialFeedLoading(false);
         return;
       }
       setCurrentOwner(owner);
@@ -1093,7 +1103,21 @@ export default function HomeScreen() {
           };
 
       const others = storyList.filter((story) => story.owner !== owner);
-      setStories([myStoryItem, ...others]);
+      const nextStories = [myStoryItem, ...others];
+
+      await Promise.all(
+        nextStories.map(async (story) => {
+          try {
+            await Image.prefetch(story.image);
+          } catch {
+            // Ignore failed prefetch and still render using the original URL.
+          }
+        }),
+      );
+
+      setStories(nextStories);
+      hasLoadedInitialFeedRef.current = true;
+      setIsInitialFeedLoading(false);
     } catch (error) {
       const authErrorText = JSON.stringify(error);
       const isNoCurrentUserError =
@@ -1108,11 +1132,16 @@ export default function HomeScreen() {
         setPosts(fallbackPosts);
         setStories([]);
         setUnreadChatCount(0);
+        hasLoadedInitialFeedRef.current = true;
+        setIsInitialFeedLoading(false);
         router.replace("/(auth)/login");
         return;
       }
 
       console.error("[Home] failed to fetch feed:", error);
+      if (!hasLoadedInitialFeedRef.current) {
+        setIsInitialFeedLoading(false);
+      }
     }
   }, [adjustScore, client, reactionBonusScore, router]);
 
@@ -1628,6 +1657,17 @@ export default function HomeScreen() {
     },
     [profileIdByUsername, router],
   );
+
+  if (isInitialFeedLoading) {
+    return (
+      <ScreenContainer backgroundColor={theme.colors.surface} padded={false}>
+        <View style={styles.initialLoadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.initialLoadingText}>ホームを準備中...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer
@@ -2587,6 +2627,18 @@ const createStyles = () =>
       lineHeight: 19,
       fontSize: 13,
       fontWeight: "600",
+    },
+    initialLoadingContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    initialLoadingText: {
+      color: theme.colors.textSub,
+      fontSize: 14,
+      fontWeight: "700",
     },
     mentionText: {
       color: theme.colors.primary,
