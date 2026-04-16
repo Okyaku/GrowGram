@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   GestureResponderEvent,
+  Image,
   ImageBackground,
   Pressable,
   StyleSheet,
@@ -53,6 +54,8 @@ const STORY_CLOSE_SWIPE_THRESHOLD = 80;
 const STORY_VIEWED_STORAGE_KEY = "story-viewed-by-owner-v1";
 const STORY_PLACEHOLDER_URL =
   "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200";
+const AVATAR_PLACEHOLDER_URL =
+  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200";
 
 const readViewedStoryState = async () => {
   try {
@@ -131,6 +134,7 @@ const listProfilesQuery = /* GraphQL */ `
         id
         owner
         username
+        iconImageKey
       }
     }
   }
@@ -204,6 +208,9 @@ export default function StoryViewScreen() {
   const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>([]);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
+  const [profileAvatarUrl, setProfileAvatarUrl] = React.useState<string | null>(
+    null,
+  );
   const [recipientUserId, setRecipientUserId] = React.useState("");
   const [reactionRecordIdByStory, setReactionRecordIdByStory] = React.useState<
     Record<string, Record<string, string>>
@@ -257,8 +264,21 @@ export default function StoryViewScreen() {
 
   const loadProfileByOwner = React.useCallback(
     async (owner: string) => {
+      const resolveAvatarUrl = async (iconImageKey?: string | null) => {
+        if (!iconImageKey) {
+          return null;
+        }
+        try {
+          const resolved = await getUrl({ path: iconImageKey });
+          return resolved.url.toString();
+        } catch {
+          return null;
+        }
+      };
+
       if (!owner) {
         setProfile(null);
+        setProfileAvatarUrl(null);
         setRecipientUserId("");
         return;
       }
@@ -273,6 +293,10 @@ export default function StoryViewScreen() {
         ).data?.getProfile;
         if (loadedProfile?.id) {
           setProfile(loadedProfile);
+          setProfileAvatarUrl(
+            (await resolveAvatarUrl(loadedProfile.iconImageKey)) ??
+              AVATAR_PLACEHOLDER_URL,
+          );
           setRecipientUserId(loadedProfile.id);
           return;
         }
@@ -294,9 +318,14 @@ export default function StoryViewScreen() {
           ).data?.listProfiles?.items ?? [];
         const matched = profiles.find((item) => item?.owner === owner) ?? null;
         setProfile(matched ?? null);
+        setProfileAvatarUrl(
+          (await resolveAvatarUrl(matched?.iconImageKey)) ??
+            AVATAR_PLACEHOLDER_URL,
+        );
         setRecipientUserId(matched?.id ?? owner);
       } catch {
         setProfile(null);
+        setProfileAvatarUrl(AVATAR_PLACEHOLDER_URL);
         setRecipientUserId(owner);
       }
     },
@@ -831,9 +860,15 @@ export default function StoryViewScreen() {
             </View>
 
             <View style={styles.topRow}>
-              <View>
-                <Text style={styles.name}>{displayName}</Text>
-                <Text style={styles.time}>{timeLabel}</Text>
+              <View style={styles.profileHeader}>
+                <Image
+                  source={{ uri: profileAvatarUrl ?? AVATAR_PLACEHOLDER_URL }}
+                  style={styles.profileAvatar}
+                />
+                <View>
+                  <Text style={styles.name}>{displayName}</Text>
+                  <Text style={styles.time}>{timeLabel}</Text>
+                </View>
               </View>
               <View style={styles.actions}>
                 <Pressable style={styles.actionBtn}>
@@ -961,7 +996,7 @@ const createStyles = () =>
     },
     heroOverlay: {
       flex: 1,
-      justifyContent: "space-between",
+      justifyContent: "flex-start",
       backgroundColor: "rgba(0,0,0,0.14)",
     },
     gesturePopup: {
@@ -1025,14 +1060,30 @@ const createStyles = () =>
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: theme.spacing.md,
+      marginTop: 10,
+    },
+    profileHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    profileAvatar: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      borderWidth: 1.5,
+      borderColor: "rgba(255,255,255,0.9)",
+      backgroundColor: theme.colors.surface,
     },
     name: {
-      color: theme.colors.white,
+      color: theme.colors.onPrimary,
+      opacity: 1,
       fontWeight: "900",
       fontSize: 22,
     },
     time: {
-      color: theme.colors.white,
+      color: theme.colors.onPrimary,
+      opacity: 1,
       marginTop: 2,
     },
     actions: {
