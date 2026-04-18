@@ -109,10 +109,20 @@ type RoadmapContextType = {
     level?: RoadmapLevel;
   }) => void;
   addBlankRoadmap: (params: { goal: string; level?: RoadmapLevel }) => void;
+  updateRoadmapGoal: (params: {
+    roadmapId: string;
+    goal: string;
+  }) => void;
   addMilestone: (params: {
     roadmapId: string;
     title: string;
     subtitle: string;
+    insertAt?: number;
+  }) => void;
+  moveMilestone: (params: {
+    roadmapId: string;
+    milestoneId: string;
+    direction: "up" | "down";
   }) => void;
   generateRoadmap: (
     params: RoadmapGenerationParams,
@@ -650,10 +660,29 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     ]);
   };
 
+  const updateRoadmapGoal: RoadmapContextType["updateRoadmapGoal"] = ({
+    roadmapId,
+    goal,
+  }) => {
+    const safeGoal = goal.trim();
+
+    setRoadmaps((prev) =>
+      prev.map((roadmap) =>
+        roadmap.id === roadmapId
+          ? {
+              ...roadmap,
+              goal: safeGoal || "未設定",
+            }
+          : roadmap,
+      ),
+    );
+  };
+
   const addMilestone: RoadmapContextType["addMilestone"] = ({
     roadmapId,
     title,
     subtitle,
+    insertAt,
   }) => {
     const safeTitle = title.trim();
     const safeSubtitle = subtitle.trim();
@@ -668,35 +697,96 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         const nextIndex = roadmap.milestoneTemplates.length + 1;
-        const milestoneId = `${roadmapId}-m${nextIndex}`;
-        const phaseId = `${roadmapId}-phase-${nextIndex}`;
-        const taskId = `${roadmapId}-task-${nextIndex}-1`;
+        const insertIndex = Math.max(
+          0,
+          Math.min(
+            typeof insertAt === "number"
+              ? Math.floor(insertAt)
+              : roadmap.milestoneTemplates.length,
+            roadmap.milestoneTemplates.length,
+          ),
+        );
+        const uid = Date.now();
+        const milestoneId = `${roadmapId}-m${nextIndex}-${uid}`;
+        const phaseId = `${roadmapId}-phase-${nextIndex}-${uid}`;
+        const taskId = `${roadmapId}-task-${nextIndex}-1-${uid}`;
+        const nextMilestone = {
+          id: phaseId,
+          title: safeTitle,
+          description: safeSubtitle,
+          tasks: [
+            {
+              id: taskId,
+              title: safeTitle,
+              description: safeSubtitle,
+            },
+          ],
+        };
+        const nextTemplate = {
+          id: milestoneId,
+          title: safeTitle,
+          subtitle: safeSubtitle,
+        };
 
         return {
           ...roadmap,
           roadmapMilestones: [
-            ...roadmap.roadmapMilestones,
-            {
-              id: phaseId,
-              title: safeTitle,
-              description: safeSubtitle,
-              tasks: [
-                {
-                  id: taskId,
-                  title: safeTitle,
-                  description: safeSubtitle,
-                },
-              ],
-            },
+            ...roadmap.roadmapMilestones.slice(0, insertIndex),
+            nextMilestone,
+            ...roadmap.roadmapMilestones.slice(insertIndex),
           ],
           milestoneTemplates: [
-            ...roadmap.milestoneTemplates,
-            {
-              id: milestoneId,
-              title: safeTitle,
-              subtitle: safeSubtitle,
-            },
+            ...roadmap.milestoneTemplates.slice(0, insertIndex),
+            nextTemplate,
+            ...roadmap.milestoneTemplates.slice(insertIndex),
           ],
+        };
+      }),
+    );
+  };
+
+  const moveMilestone: RoadmapContextType["moveMilestone"] = ({
+    roadmapId,
+    milestoneId,
+    direction,
+  }) => {
+    setRoadmaps((prev) =>
+      prev.map((roadmap) => {
+        if (roadmap.id !== roadmapId) {
+          return roadmap;
+        }
+
+        const currentIndex = roadmap.milestoneTemplates.findIndex(
+          (item) => item.id === milestoneId,
+        );
+        if (currentIndex < 0) {
+          return roadmap;
+        }
+
+        const targetIndex =
+          direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (
+          targetIndex < 0 ||
+          targetIndex >= roadmap.milestoneTemplates.length
+        ) {
+          return roadmap;
+        }
+
+        const nextTemplates = [...roadmap.milestoneTemplates];
+        const nextMilestones = [...roadmap.roadmapMilestones];
+
+        const tempTemplate = nextTemplates[currentIndex];
+        nextTemplates[currentIndex] = nextTemplates[targetIndex];
+        nextTemplates[targetIndex] = tempTemplate;
+
+        const tempMilestone = nextMilestones[currentIndex];
+        nextMilestones[currentIndex] = nextMilestones[targetIndex];
+        nextMilestones[targetIndex] = tempMilestone;
+
+        return {
+          ...roadmap,
+          milestoneTemplates: nextTemplates,
+          roadmapMilestones: nextMilestones,
         };
       }),
     );
@@ -991,7 +1081,9 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
         moveRoadmap,
         addRoadmap,
         addBlankRoadmap,
+        updateRoadmapGoal,
         addMilestone,
+        moveMilestone,
         generateRoadmap,
         updateMilestone,
         recordDailyActivity,

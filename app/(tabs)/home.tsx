@@ -1414,9 +1414,15 @@ export default function HomeScreen() {
               }
             >
               <View
-                style={[styles.storyRing, story.active && styles.storyRingActive]}
+                style={[
+                  styles.storyRing,
+                  story.active && styles.storyRingActive,
+                ]}
               >
-                <Image source={{ uri: story.image }} style={styles.storyAvatar} />
+                <Image
+                  source={{ uri: story.image }}
+                  style={styles.storyAvatar}
+                />
               </View>
               <Text style={styles.storyName} numberOfLines={1}>
                 {story.userName}
@@ -1565,207 +1571,217 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.postBottomSection}>
-            <Text style={styles.gestureHint}>
-              長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
-            </Text>
+              <Text style={styles.gestureHint}>
+                長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
+              </Text>
 
-            <Text style={styles.logLabel}>LOG:</Text>
-            <Text style={styles.log}>{post.log}</Text>
-            <View style={styles.tagRow}>
-              <Ionicons
-                name="pricetags"
-                size={14}
-                color={theme.colors.primary}
-              />
-              <Text style={styles.tags}>{post.tags.join(" ")}</Text>
-            </View>
-
-            <View style={styles.scoreRow}>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "passion");
-                  void toggleReaction(post.id, "passion");
-                }}
-              >
-                <Ionicons name="flame" size={14} color={theme.colors.primary} />
-                <Text style={styles.scoreLabel}>情熱 {post.passionCount}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "logic");
-                  void toggleReaction(post.id, "logic");
-                }}
-              >
-                <Ionicons name="bulb" size={14} color={theme.colors.primary} />
-                <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.scoreItem}
-                onPress={() => {
-                  showGestureFeedback(post.id, "routine");
-                  void toggleReaction(post.id, "routine");
-                }}
-              >
+              <Text style={styles.logLabel}>LOG:</Text>
+              <Text style={styles.log}>{post.log}</Text>
+              <View style={styles.tagRow}>
                 <Ionicons
-                  name="ribbon"
+                  name="pricetags"
                   size={14}
                   color={theme.colors.primary}
                 />
-                <Text style={styles.scoreLabel}>
-                  一貫性 {post.routineCount}
-                </Text>
-              </Pressable>
-            </View>
+                <Text style={styles.tags}>{post.tags.join(" ")}</Text>
+              </View>
 
-            <View style={styles.postActions}>
-              {!isOwner && (
+              <View style={styles.scoreRow}>
                 <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => void toggleSave(post.id)}
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "passion");
+                    void toggleReaction(post.id, "passion");
+                  }}
                 >
                   <Ionicons
-                    name={
-                      savedPostIds.has(post.id)
-                        ? "bookmark"
-                        : "bookmark-outline"
-                    }
-                    size={16}
-                    color={theme.colors.textSub}
-                  />
-                  <Text style={styles.postActionText}>
-                    保存 {post.saveCount}
-                  </Text>
-                </Pressable>
-              )}
-              <Pressable
-                style={styles.postActionItem}
-                onPress={() => void onRepost(post)}
-              >
-                <Ionicons
-                  name="repeat-outline"
-                  size={16}
-                  color={theme.colors.textSub}
-                />
-                <Text style={styles.postActionText}>再投稿</Text>
-              </Pressable>
-              {isOwner ? (
-                <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => onArchive(post)}
-                >
-                  <Ionicons
-                    name="archive-outline"
-                    size={16}
-                    color={theme.colors.textSub}
-                  />
-                  <Text style={styles.postActionText}>アーカイブ</Text>
-                </Pressable>
-              ) : null}
-              {isOwner ? (
-                <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => onDelete(post)}
-                >
-                  <Ionicons
-                    name="trash-outline"
-                    size={16}
-                    color={theme.colors.danger}
-                  />
-                  <Text
-                    style={[
-                      styles.postActionText,
-                      { color: theme.colors.danger },
-                    ]}
-                  >
-                    削除
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.commentSection}>
-              <Text style={styles.commentSectionTitle}>コメント</Text>
-              <View style={styles.commentInputRow}>
-                <TextInput
-                  value={commentInputByPost[post.id] ?? ""}
-                  onChangeText={(text) =>
-                    setCommentInputByPost((prev) => ({
-                      ...prev,
-                      [post.id]: text,
-                    }))
-                  }
-                  placeholder="コメントを書く（@username でメンション）"
-                  placeholderTextColor={theme.colors.textSub}
-                  style={styles.commentInput}
-                />
-                <Pressable
-                  style={styles.commentSendButton}
-                  onPress={() => void onSubmitComment(post.id)}
-                >
-                  <Ionicons
-                    name="send"
+                    name="flame"
                     size={14}
-                    color={theme.colors.onPrimary}
+                    color={theme.colors.primary}
                   />
+                  <Text style={styles.scoreLabel}>
+                    情熱 {post.passionCount}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "logic");
+                    void toggleReaction(post.id, "logic");
+                  }}
+                >
+                  <Ionicons
+                    name="bulb"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.scoreItem}
+                  onPress={() => {
+                    showGestureFeedback(post.id, "routine");
+                    void toggleReaction(post.id, "routine");
+                  }}
+                >
+                  <Ionicons
+                    name="ribbon"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.scoreLabel}>
+                    一貫性 {post.routineCount}
+                  </Text>
                 </Pressable>
               </View>
 
-              {(commentsByPost[post.id] ?? []).length === 0 ? (
-                <Text style={styles.commentEmptyText}>
-                  最初のコメントをしてみよう。
-                </Text>
-              ) : null}
-
-              {(commentsByPost[post.id] ?? []).map((comment) => (
-                <View key={comment.id} style={styles.commentCard}>
-                  <View style={styles.commentHeaderRow}>
-                    <Pressable
-                      style={styles.commentOwnerRow}
-                      onPress={() => {
-                        if (comment.ownerId) {
-                          router.push(`/profile/${comment.ownerId}`);
-                        }
-                      }}
+              <View style={styles.postActions}>
+                {!isOwner && (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => void toggleSave(post.id)}
+                  >
+                    <Ionicons
+                      name={
+                        savedPostIds.has(post.id)
+                          ? "bookmark"
+                          : "bookmark-outline"
+                      }
+                      size={16}
+                      color={theme.colors.textSub}
+                    />
+                    <Text style={styles.postActionText}>
+                      保存 {post.saveCount}
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  style={styles.postActionItem}
+                  onPress={() => void onRepost(post)}
+                >
+                  <Ionicons
+                    name="repeat-outline"
+                    size={16}
+                    color={theme.colors.textSub}
+                  />
+                  <Text style={styles.postActionText}>再投稿</Text>
+                </Pressable>
+                {isOwner ? (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => onArchive(post)}
+                  >
+                    <Ionicons
+                      name="archive-outline"
+                      size={16}
+                      color={theme.colors.textSub}
+                    />
+                    <Text style={styles.postActionText}>アーカイブ</Text>
+                  </Pressable>
+                ) : null}
+                {isOwner ? (
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => onDelete(post)}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={16}
+                      color={theme.colors.danger}
+                    />
+                    <Text
+                      style={[
+                        styles.postActionText,
+                        { color: theme.colors.danger },
+                      ]}
                     >
-                      {comment.ownerAvatar ? (
-                        <Image
-                          source={{ uri: comment.ownerAvatar }}
-                          style={styles.commentAvatar}
-                        />
-                      ) : (
-                        <View style={styles.commentAvatarPlaceholder} />
-                      )}
-                      <Text style={styles.commentOwner}>
-                        {comment.ownerName}
-                      </Text>
-                    </Pressable>
+                      削除
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
 
-                    <Pressable
-                      style={styles.commentLikeButton}
-                      onPress={() => void onToggleCommentLike(comment)}
-                    >
-                      <Ionicons
-                        name={comment.likedByMe ? "heart" : "heart-outline"}
-                        size={14}
-                        color={
-                          comment.likedByMe
-                            ? theme.colors.danger
-                            : theme.colors.textSub
-                        }
-                      />
-                      <Text style={styles.commentLikeText}>
-                        {comment.likeCount}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <Text style={styles.commentText}>
-                    {renderCommentContent(comment.content)}
-                  </Text>
+              <View style={styles.commentSection}>
+                <Text style={styles.commentSectionTitle}>コメント</Text>
+                <View style={styles.commentInputRow}>
+                  <TextInput
+                    value={commentInputByPost[post.id] ?? ""}
+                    onChangeText={(text) =>
+                      setCommentInputByPost((prev) => ({
+                        ...prev,
+                        [post.id]: text,
+                      }))
+                    }
+                    placeholder="コメントを書く（@username でメンション）"
+                    placeholderTextColor={theme.colors.textSub}
+                    style={styles.commentInput}
+                  />
+                  <Pressable
+                    style={styles.commentSendButton}
+                    onPress={() => void onSubmitComment(post.id)}
+                  >
+                    <Ionicons
+                      name="send"
+                      size={14}
+                      color={theme.colors.onPrimary}
+                    />
+                  </Pressable>
                 </View>
-              ))}
-            </View>
+
+                {(commentsByPost[post.id] ?? []).length === 0 ? (
+                  <Text style={styles.commentEmptyText}>
+                    最初のコメントをしてみよう。
+                  </Text>
+                ) : null}
+
+                {(commentsByPost[post.id] ?? []).map((comment) => (
+                  <View key={comment.id} style={styles.commentCard}>
+                    <View style={styles.commentHeaderRow}>
+                      <Pressable
+                        style={styles.commentOwnerRow}
+                        onPress={() => {
+                          if (comment.ownerId) {
+                            router.push(`/profile/${comment.ownerId}`);
+                          }
+                        }}
+                      >
+                        {comment.ownerAvatar ? (
+                          <Image
+                            source={{ uri: comment.ownerAvatar }}
+                            style={styles.commentAvatar}
+                          />
+                        ) : (
+                          <View style={styles.commentAvatarPlaceholder} />
+                        )}
+                        <Text style={styles.commentOwner}>
+                          {comment.ownerName}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.commentLikeButton}
+                        onPress={() => void onToggleCommentLike(comment)}
+                      >
+                        <Ionicons
+                          name={comment.likedByMe ? "heart" : "heart-outline"}
+                          size={14}
+                          color={
+                            comment.likedByMe
+                              ? theme.colors.danger
+                              : theme.colors.textSub
+                          }
+                        />
+                        <Text style={styles.commentLikeText}>
+                          {comment.likeCount}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.commentText}>
+                      {renderCommentContent(comment.content)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
           </View>
         );
