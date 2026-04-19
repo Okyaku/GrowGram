@@ -27,8 +27,8 @@
     },
     "BedrockModelId": {
       "Type": "String",
-      "Default": "anthropic.claude-haiku-4-5-20251001-v1:0",
-      "Description": "Bedrock foundation model id used for roadmap generation"
+      "Default": "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "Description": "Bedrock inference profile id used for roadmap generation"
     }
   },
   "Resources": {
@@ -82,9 +82,14 @@
                 {
                   "Effect": "Allow",
                   "Action": ["bedrock:InvokeModel"],
-                  "Resource": {
-                    "Fn::Sub": "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}"
-                  }
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:application-inference-profile/${BedrockModelId}"
+                    }
+                  ]
                 }
               ]
             }
