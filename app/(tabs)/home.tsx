@@ -1693,6 +1693,21 @@ export default function HomeScreen() {
     [scrollY],
   );
 
+  if (isInitialFeedLoading) {
+    return (
+      <ScreenContainer
+        backgroundColor={theme.colors.surface}
+        scrollable={false}
+        padded={false}
+      >
+        <View style={styles.initialLoadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.initialLoadingText}>ホームを読み込み中...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer
       backgroundColor={theme.colors.surface}
