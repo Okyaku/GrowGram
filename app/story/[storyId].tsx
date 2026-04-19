@@ -555,6 +555,9 @@ export default function StoryViewScreen() {
   const timeLabel = created
     ? `${created.getMonth() + 1}/${created.getDate()} ${created.getHours()}:${`${created.getMinutes()}`.padStart(2, "0")}`
     : "たった今";
+  const isOwnStory = Boolean(
+    story?.owner && currentUsername && story.owner === currentUsername,
+  );
 
   const toggleStoryReaction = React.useCallback(
     async (reactionType: ReactionType) => {
@@ -956,86 +959,92 @@ export default function StoryViewScreen() {
           {story.caption ? (
             <Text style={styles.caption}>{story.caption}</Text>
           ) : null}
-          <View style={styles.inputRow}>
-            <TextInput
-              value={message}
-              onChangeText={setMessage}
-              placeholder="DMを送信"
-              placeholderTextColor={theme.colors.textSub}
-              style={styles.input}
-              onFocus={() => setIsPlaybackPaused(true)}
-              onBlur={() => setIsPlaybackPaused(false)}
-            />
-            <View style={styles.reactionActions}>
+          {isOwnStory ? null : (
+            <View style={styles.inputRow}>
+              <TextInput
+                value={message}
+                onChangeText={setMessage}
+                placeholder="DMを送信"
+                placeholderTextColor={theme.colors.textSub}
+                style={styles.input}
+                onFocus={() => setIsPlaybackPaused(true)}
+                onBlur={() => setIsPlaybackPaused(false)}
+              />
+              <View style={styles.reactionActions}>
+                <Pressable
+                  accessibilityLabel="情熱を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.passion &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("passion")}
+                >
+                  <Ionicons
+                    name="flame"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.passion
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="論理を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.logic &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("logic")}
+                >
+                  <Ionicons
+                    name="bulb"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.logic
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="一貫性を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.routine &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("routine")}
+                >
+                  <Ionicons
+                    name="ribbon"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.routine
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
+                  />
+                </Pressable>
+              </View>
               <Pressable
-                accessibilityLabel="情熱を送る"
                 style={[
-                  styles.reactionActionBtn,
-                  reactionRecordIdByType.passion &&
-                    styles.reactionActionBtnActive,
+                  styles.sendBtn,
+                  isSendingMessage && styles.sendBtnDisabled,
                 ]}
-                onPress={() => onToggleReaction("passion")}
+                onPress={() => void onSendStoryMessage()}
+                disabled={isSendingMessage}
               >
                 <Ionicons
-                  name="flame"
-                  size={18}
-                  color={
-                    reactionRecordIdByType.passion
-                      ? theme.colors.white
-                      : theme.colors.primary
-                  }
-                />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="論理を送る"
-                style={[
-                  styles.reactionActionBtn,
-                  reactionRecordIdByType.logic &&
-                    styles.reactionActionBtnActive,
-                ]}
-                onPress={() => onToggleReaction("logic")}
-              >
-                <Ionicons
-                  name="bulb"
-                  size={18}
-                  color={
-                    reactionRecordIdByType.logic
-                      ? theme.colors.white
-                      : theme.colors.primary
-                  }
-                />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="一貫性を送る"
-                style={[
-                  styles.reactionActionBtn,
-                  reactionRecordIdByType.routine &&
-                    styles.reactionActionBtnActive,
-                ]}
-                onPress={() => onToggleReaction("routine")}
-              >
-                <Ionicons
-                  name="ribbon"
-                  size={18}
-                  color={
-                    reactionRecordIdByType.routine
-                      ? theme.colors.white
-                      : theme.colors.primary
-                  }
+                  name="send"
+                  size={20}
+                  color={theme.colors.onPrimary}
                 />
               </Pressable>
             </View>
-            <Pressable
-              style={[
-                styles.sendBtn,
-                isSendingMessage && styles.sendBtnDisabled,
-              ]}
-              onPress={() => void onSendStoryMessage()}
-              disabled={isSendingMessage}
-            >
-              <Ionicons name="send" size={20} color={theme.colors.onPrimary} />
-            </Pressable>
-          </View>
+          )}
         </Animated.View>
       </Animated.View>
     </View>
