@@ -1713,9 +1713,9 @@ export default function HomeScreen() {
             onRefresh={() => {
               void onRefresh();
             }}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-            progressBackgroundColor={theme.colors.surface}
+            colors={["transparent"]}
+            tintColor="transparent"
+            progressBackgroundColor="transparent"
             progressViewOffset={128}
           />
         }
