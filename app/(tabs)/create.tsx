@@ -108,9 +108,9 @@ export default function CreateScreen() {
       items.push({ type: "milestone", milestone });
 
       if (milestoneIndex < renderMilestones.length - 1) {
-        const stepsInSegment = shortTermGoals
-          .filter((step) => step.segmentIndex === milestoneIndex)
-          .sort((a, b) => a.position - b.position);
+        const stepsInSegment = shortTermGoals.filter(
+          (step) => step.segmentIndex === milestoneIndex,
+        );
 
         if (stepsInSegment.length > 0) {
           stepsInSegment.forEach((step) => {
@@ -123,9 +123,9 @@ export default function CreateScreen() {
     });
 
     if (renderMilestones.length <= 1) {
-      const standaloneSteps = shortTermGoals
-        .filter((step) => step.segmentIndex === 0)
-        .sort((a, b) => a.position - b.position);
+      const standaloneSteps = shortTermGoals.filter(
+        (step) => step.segmentIndex === 0,
+      );
       if (standaloneSteps.length > 0) {
         standaloneSteps.forEach((step) => items.push({ type: "step", step }));
       } else {
@@ -133,9 +133,9 @@ export default function CreateScreen() {
       }
     }
 
-    const preMilestoneSteps = shortTermGoals
-      .filter((step) => step.segmentIndex === PRE_MILESTONE_SEGMENT)
-      .sort((a, b) => a.position - b.position);
+    const preMilestoneSteps = shortTermGoals.filter(
+      (step) => step.segmentIndex === PRE_MILESTONE_SEGMENT,
+    );
 
     preMilestoneSteps.forEach((step) => {
       items.push({ type: "step", step });
@@ -268,14 +268,10 @@ export default function CreateScreen() {
 
       return steps.map((step) => {
         const segmentSteps = grouped.get(step.segmentIndex) ?? [];
-        const sorted = [...segmentSteps].sort(
-          (left, right) =>
-            left.position - right.position || left.id.localeCompare(right.id),
-        );
-        const indexInSegment = sorted.findIndex(
+        const indexInSegment = segmentSteps.findIndex(
           (segmentStep) => segmentStep.id === step.id,
         );
-        const count = sorted.length;
+        const count = segmentSteps.length;
 
         if (count <= 1 || indexInSegment < 0) {
           return step;
@@ -891,22 +887,82 @@ export default function CreateScreen() {
     [getSegmentBounds, segmentCount],
   );
 
+  const projectToRoadFromTop = React.useCallback(
+    (top: number) => {
+      const placement = getStepPlacementFromTop(top);
+      const bounds = getSegmentBounds(placement.segmentIndex);
+      const projectedTop =
+        bounds.startTop + bounds.span * (1 - placement.position);
+
+      return {
+        segmentIndex: placement.segmentIndex,
+        position: placement.position,
+        top: projectedTop,
+      };
+    },
+    [getSegmentBounds, getStepPlacementFromTop],
+  );
+
   const moveShortTermGoalFreely = React.useCallback(
     (stepId: string, droppedTop: number) => {
-      const placement = getStepPlacementFromTop(droppedTop);
-      setShortTermGoals((prev) =>
-        prev.map((step) =>
-          step.id === stepId
-            ? {
-                ...step,
-                segmentIndex: placement.segmentIndex,
-                position: placement.position,
-              }
-            : step,
-        ),
-      );
+      const projectedPlacement = projectToRoadFromTop(droppedTop);
+
+      setShortTermGoals((prev) => {
+        const moving = prev.find((step) => step.id === stepId);
+        if (!moving) {
+          return prev;
+        }
+
+        const others = prev.filter((step) => step.id !== stepId);
+        const targetSegment = projectedPlacement.segmentIndex;
+        const bounds = getSegmentBounds(targetSegment);
+
+        const segmentOrdered = others.filter(
+          (step) => step.segmentIndex === targetSegment,
+        );
+
+        let insertInSegment = segmentOrdered.length;
+        for (let index = 0; index < segmentOrdered.length; index += 1) {
+          const step = segmentOrdered[index];
+          const stepTop = bounds.startTop + bounds.span * (1 - step.position);
+          if (droppedTop < stepTop) {
+            insertInSegment = index;
+            break;
+          }
+        }
+
+        const firstIndexInAll = others.findIndex(
+          (step) => step.segmentIndex === targetSegment,
+        );
+        const segmentIndicesInAll = others
+          .map((step, index) => ({ step, index }))
+          .filter((entry) => entry.step.segmentIndex === targetSegment)
+          .map((entry) => entry.index);
+
+        let insertAt = others.length;
+        if (segmentIndicesInAll.length > 0) {
+          if (insertInSegment <= 0) {
+            insertAt = segmentIndicesInAll[0];
+          } else if (insertInSegment >= segmentIndicesInAll.length) {
+            insertAt = segmentIndicesInAll[segmentIndicesInAll.length - 1] + 1;
+          } else {
+            insertAt = segmentIndicesInAll[insertInSegment];
+          }
+        } else if (firstIndexInAll >= 0) {
+          insertAt = firstIndexInAll;
+        }
+
+        const next = [...others];
+        next.splice(insertAt, 0, {
+          ...moving,
+          segmentIndex: targetSegment,
+          position: projectedPlacement.position,
+        });
+
+        return next;
+      });
     },
-    [getStepPlacementFromTop],
+    [getSegmentBounds, projectToRoadFromTop],
   );
 
   const onAutoAlignShortTermGoals = React.useCallback(() => {
@@ -918,46 +974,51 @@ export default function CreateScreen() {
         return prev;
       }
 
-      const withResolvedSegment = prev.map((step) => {
-        const currentBounds = getSegmentBounds(step.segmentIndex);
-        const currentTop =
-          currentBounds.startTop + currentBounds.span * (1 - step.position);
-        const placement = getStepPlacementFromTop(currentTop);
-        return {
-          ...step,
-          segmentIndex: placement.segmentIndex,
-          __currentTop: currentTop,
-        };
+      const grouped = new Map<
+        number,
+        Array<{ id: string; position: number; originalIndex: number }>
+      >();
+      prev.forEach((step, index) => {
+        const current = grouped.get(step.segmentIndex) ?? [];
+        current.push({
+          id: step.id,
+          position: step.position,
+          originalIndex: index,
+        });
+        grouped.set(step.segmentIndex, current);
       });
 
-      const grouped = new Map<number, typeof withResolvedSegment>();
-      withResolvedSegment.forEach((step) => {
-        const steps = grouped.get(step.segmentIndex) ?? [];
-        steps.push(step);
-        grouped.set(step.segmentIndex, steps);
-      });
-
-      const alignedById = new Map<string, ShortTermGoal>();
+      const alignedPositionById = new Map<string, number>();
       grouped.forEach((steps, segmentIndex) => {
-        const sorted = [...steps].sort(
-          (left, right) => left.__currentTop - right.__currentTop,
-        );
-        const count = sorted.length;
+        const bounds = getSegmentBounds(segmentIndex);
 
-        sorted.forEach((step, index) => {
-          const alignedPosition = count <= 1 ? 0.5 : (index + 1) / (count + 1);
-          alignedById.set(step.id, {
-            id: step.id,
-            title: step.title,
-            subtitle: step.subtitle,
-            segmentIndex,
-            position: Math.max(0.08, Math.min(0.92, alignedPosition)),
-            isCompleted: step.isCompleted,
-          });
+        // Sort by current on-screen Y (top -> bottom), then normalize spacing only.
+        const ordered = [...steps].sort((left, right) => {
+          const leftTop = bounds.startTop + bounds.span * (1 - left.position);
+          const rightTop = bounds.startTop + bounds.span * (1 - right.position);
+
+          if (Math.abs(leftTop - rightTop) > 0.001) {
+            return leftTop - rightTop;
+          }
+          return left.originalIndex - right.originalIndex;
+        });
+
+        const count = ordered.length;
+        ordered.forEach((step, index) => {
+          const alignedProgress =
+            count <= 1 ? 0.5 : 1 - (index + 1) / (count + 1);
+          alignedPositionById.set(
+            step.id,
+            Math.max(0.08, Math.min(0.92, alignedProgress)),
+          );
         });
       });
 
-      const aligned = prev.map((step) => alignedById.get(step.id) ?? step);
+      const aligned = prev.map((step) => ({
+        ...step,
+        position: alignedPositionById.get(step.id) ?? step.position,
+      }));
+
       changedCount = prev.reduce((count, step, index) => {
         const next = aligned[index];
         if (!next) {
@@ -980,7 +1041,7 @@ export default function CreateScreen() {
           : "並びはすでに整っています。",
       );
     });
-  }, [getSegmentBounds, getStepPlacementFromTop]);
+  }, [getSegmentBounds]);
 
   React.useEffect(() => {
     setShortTermGoals((prev) =>
@@ -1170,7 +1231,7 @@ export default function CreateScreen() {
     };
   }, [roadStartY, roadmapHeight]);
 
-  const getPathXForTop = (top: number) => {
+  function getPathXForTop(top: number) {
     const segments = roadGeometry.segments;
     const firstSegment = segments[0];
     const lastSegment = segments[segments.length - 1];
@@ -1206,7 +1267,7 @@ export default function CreateScreen() {
     return (
       cubicValue(segment.x0, segment.x1, segment.x2, segment.x3, t) * widthScale
     );
-  };
+  }
 
   const onResetToIntro = () => {
     setFlowStep("intro");
@@ -2071,6 +2132,9 @@ export default function CreateScreen() {
                     const segmentBounds = getSegmentBounds(
                       item.step.segmentIndex,
                     );
+                    const top =
+                      segmentBounds.startTop +
+                      segmentBounds.span * (1 - item.step.position);
                     const dotMinX = 12;
                     const dotMaxX = Math.max(dotMinX, roadmapWidth - 26);
                     const dotLeft = Math.max(
