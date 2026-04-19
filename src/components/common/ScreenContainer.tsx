@@ -4,6 +4,7 @@ import {
   GestureResponderHandlers,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -22,6 +23,9 @@ type Props = {
   keyboardAvoiding?: boolean;
   keyboardVerticalOffset?: number;
   scrollViewRef?: React.RefObject<ScrollView | null>;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  refreshProgressViewOffset?: number;
 };
 
 export const ScreenContainer: React.FC<Props> = ({
@@ -34,6 +38,9 @@ export const ScreenContainer: React.FC<Props> = ({
   keyboardAvoiding = true,
   keyboardVerticalOffset = 0,
   scrollViewRef,
+  refreshing = false,
+  onRefresh,
+  refreshProgressViewOffset = 0,
 }) => {
   const statusBarStyle =
     getThemeMode() === "dark" ? "light-content" : "dark-content";
@@ -72,6 +79,18 @@ export const ScreenContainer: React.FC<Props> = ({
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              refreshControl={
+                onRefresh ? (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    colors={[theme.colors.primary]}
+                    tintColor={theme.colors.primary}
+                    progressBackgroundColor={theme.colors.surface}
+                    progressViewOffset={refreshProgressViewOffset}
+                  />
+                ) : undefined
+              }
               keyboardDismissMode={
                 Platform.OS === "ios" ? "interactive" : "on-drag"
               }

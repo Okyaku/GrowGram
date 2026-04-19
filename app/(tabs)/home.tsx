@@ -2,9 +2,11 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -470,6 +472,7 @@ export default function HomeScreen() {
   );
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
+  const scrollY = React.useRef(new Animated.Value(0)).current;
   const {
     canCreatePost,
     postCredits,
@@ -481,6 +484,7 @@ export default function HomeScreen() {
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [currentUserId, setCurrentUserId] = React.useState("");
   const [unreadChatCount, setUnreadChatCount] = React.useState(0);
   const [reactionBonusScore, setReactionBonusScore] = React.useState(0);
@@ -1151,6 +1155,18 @@ export default function HomeScreen() {
     }, [loadFeed]),
   );
 
+  const onRefresh = React.useCallback(async () => {
+    if (isRefreshing) {
+      return;
+    }
+    setIsRefreshing(true);
+    try {
+      await loadFeed();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, loadFeed]);
+
   const isUnauthorizedGraphQLError = React.useCallback((error: unknown) => {
     const serialized = JSON.stringify(error);
     if (
@@ -1658,483 +1674,529 @@ export default function HomeScreen() {
     [profileIdByUsername, router],
   );
 
-  if (isInitialFeedLoading) {
-    return (
-      <ScreenContainer backgroundColor={theme.colors.surface} padded={false}>
-        <View style={styles.initialLoadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={styles.initialLoadingText}>ホームを準備中...</Text>
-        </View>
-      </ScreenContainer>
-    );
-  }
+  const onFeedScroll = React.useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+      }),
+    [scrollY],
+  );
+
+  const headerCompensateTranslateY = React.useMemo(
+    () =>
+      scrollY.interpolate({
+        inputRange: [-160, 0, 1],
+        outputRange: [-160, 0, 0],
+        extrapolateLeft: "extend",
+        extrapolateRight: "clamp",
+      }),
+    [scrollY],
+  );
 
   return (
     <ScreenContainer
       backgroundColor={theme.colors.surface}
-      scrollViewRef={scrollViewRef}
+      scrollable={false}
       padded={false}
     >
-      <View style={styles.topSection}>
-        <View style={styles.headerRow}>
-          <View style={styles.brandRow}>
-            <Ionicons name="flash" size={22} color={theme.colors.primary} />
-            <Text style={styles.heading}>GROWGRAM</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={styles.headerIconButton}
-              onPress={() => router.push("/chat")}
-            >
-              <Ionicons
-                name="chatbubble-ellipses"
-                size={18}
-                color={theme.colors.text}
-              />
-              {unreadChatCount > 0 ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
-                  </Text>
-                </View>
-              ) : null}
-            </Pressable>
-            <Pressable
-              style={styles.headerIconButton}
-              onPress={() => router.push("/notifications")}
-            >
-              <Ionicons
-                name="notifications"
-                size={18}
-                color={theme.colors.textSub}
-              />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View>
-            <Text style={styles.statLabel}>継続日数</Text>
-            <Text style={styles.statValue}>{streakDays}日</Text>
-          </View>
-          <View>
-            <Text style={styles.statLabel}>現在のレベル</Text>
-            <Text style={styles.statValueDark}>Lv.{level}</Text>
-          </View>
-          <View>
-            <Text style={styles.statLabel}>獲得スコア</Text>
-            <Text style={styles.statValue}>
-              {totalScore.toLocaleString()} pts
-            </Text>
-          </View>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.storyList}
-        >
-          {stories.map((story) => (
-            <Pressable
-              key={story.id}
-              style={styles.storyItem}
-              onPress={() =>
-                router.push(
-                  story.id === "my-create"
-                    ? "/story-create"
-                    : `/story/${story.id}`,
-                )
-              }
-            >
-              <View
-                style={[
-                  styles.storyRing,
-                  story.active && styles.storyRingActive,
-                ]}
-              >
-                <Image
-                  source={{ uri: story.image }}
-                  style={styles.storyAvatar}
-                />
+      <Animated.ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={styles.feedContentContainer}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScroll={onFeedScroll}
+        scrollEventThrottle={16}
+        keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => {
+              void onRefresh();
+            }}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+            progressBackgroundColor={theme.colors.surface}
+            progressViewOffset={128}
+          />
+        }
+      >
+        <View style={styles.topSection}>
+          <Animated.View
+            style={{ transform: [{ translateY: headerCompensateTranslateY }] }}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.brandRow}>
+                <Ionicons name="flash" size={22} color={theme.colors.primary} />
+                <Text style={styles.heading}>GROWGRAM</Text>
               </View>
-              <Text style={styles.storyName} numberOfLines={1}>
-                {story.userName}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <View style={styles.actionRow}>
-          <CustomButton
-            label="ストーリー投稿"
-            onPress={() => router.push("/story-create")}
-            style={styles.actionButton}
-            textStyle={styles.actionButtonText}
-          />
-          <CustomButton
-            label={
-              canCreatePost ? `通常投稿 (${postCredits})` : "通常投稿 (LOCKED)"
-            }
-            onPress={() =>
-              router.push(canCreatePost ? "/post-create" : "/(tabs)/create")
-            }
-            variant={canCreatePost ? "outline" : "secondary"}
-            style={styles.actionButton}
-            textStyle={styles.actionButtonText}
-          />
-        </View>
-      </View>
-
-      {posts.map((post) => {
-        const isOwner = currentOwner.length > 0 && post.userId === currentOwner;
-        return (
-          <View key={post.id} style={styles.card}>
-            <View style={styles.postTopSection}>
-              <View style={styles.cardHeader}>
+              <View style={styles.headerActions}>
                 <Pressable
-                  style={styles.userRow}
-                  onPress={() => router.push(`/profile/${post.userId}`)}
-                >
-                  {post.userAvatar ? (
-                    <Image
-                      source={{ uri: post.userAvatar }}
-                      style={styles.userAvatar}
-                    />
-                  ) : (
-                    <View style={styles.userAvatarPlaceholder} />
-                  )}
-                  <Text style={styles.user}>{post.userName}</Text>
-                </Pressable>
-              </View>
-
-              <Text style={styles.day}>{post.title}</Text>
-            </View>
-            <View style={styles.imagePressable}>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(event) => {
-                  const pageIndex = Math.round(
-                    event.nativeEvent.contentOffset.x / cardImageWidth,
-                  );
-                  setVisibleImageIndexByPost((prev) => ({
-                    ...prev,
-                    [post.id]: pageIndex,
-                  }));
-                }}
-                style={styles.imageCarousel}
-              >
-                {(post.imageUrls.length > 0
-                  ? post.imageUrls
-                  : [post.image]
-                ).map((uri, index) => (
-                  <Pressable
-                    key={`${post.id}-${index}-${uri}`}
-                    onLongPress={() => onPostLongPress(post.id)}
-                    onPress={() =>
-                      onPostTap(
-                        post.id,
-                        post.imageUrls.length > 0
-                          ? post.imageUrls
-                          : [post.image],
-                        index,
-                      )
-                    }
-                    style={[styles.imageSlide, { width: cardImageWidth }]}
-                  >
-                    <Image
-                      source={{ uri }}
-                      style={[styles.image, { height: cardImageHeight }]}
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                ))}
-              </ScrollView>
-              <View style={styles.imageDotsRow}>
-                {(post.imageUrls.length > 0
-                  ? post.imageUrls
-                  : [post.image]
-                ).map((_, index) => {
-                  const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
-                  const isActive = currentIndex === index;
-                  return (
-                    <View
-                      key={`${post.id}-dot-${index}`}
-                      style={[
-                        styles.imageDot,
-                        isActive && styles.imageDotActive,
-                      ]}
-                    />
-                  );
-                })}
-              </View>
-              {post.imageCount > 1 ? (
-                <View style={styles.multipleBadge}>
-                  <Ionicons
-                    name="albums"
-                    size={12}
-                    color={theme.colors.onPrimary}
-                  />
-                  <Text style={styles.multipleBadgeText}>
-                    {post.imageCount}
-                  </Text>
-                </View>
-              ) : null}
-              {gestureFeedback?.postId === post.id ? (
-                <View
-                  style={[
-                    styles.gesturePopup,
-                    {
-                      backgroundColor: gestureFeedback.backgroundColor,
-                      borderColor: gestureFeedback.borderColor,
-                    },
-                  ]}
+                  style={styles.headerIconButton}
+                  onPress={() => router.push("/chat")}
                 >
                   <Ionicons
-                    name={gestureFeedback.icon}
+                    name="chatbubble-ellipses"
                     size={18}
-                    color={theme.colors.onPrimary}
+                    color={theme.colors.text}
                   />
-                  <Text style={styles.gesturePopupText}>
-                    {gestureFeedback.label}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={styles.postBottomSection}>
-              <Text style={styles.gestureHint}>
-                長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
-              </Text>
-
-              <Text style={styles.logLabel}>LOG:</Text>
-              <Text style={styles.log}>{post.log}</Text>
-              <View style={styles.tagRow}>
-                <Ionicons
-                  name="pricetags"
-                  size={14}
-                  color={theme.colors.primary}
-                />
-                <Text style={styles.tags}>{post.tags.join(" ")}</Text>
-              </View>
-
-              <View style={styles.scoreRow}>
-                <Pressable
-                  style={[
-                    styles.scoreItem,
-                    !isIdentityReady && styles.scoreItemDisabled,
-                  ]}
-                  disabled={!isIdentityReady}
-                  onPress={() => {
-                    showGestureFeedback(post.id, "passion");
-                    void toggleReaction(post.id, "passion");
-                  }}
-                >
-                  <Ionicons
-                    name="flame"
-                    size={14}
-                    color={theme.colors.primary}
-                  />
-                  <Text style={styles.scoreLabel}>
-                    情熱 {post.passionCount}
-                  </Text>
+                  {unreadChatCount > 0 ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
                 <Pressable
-                  style={[
-                    styles.scoreItem,
-                    !isIdentityReady && styles.scoreItemDisabled,
-                  ]}
-                  disabled={!isIdentityReady}
-                  onPress={() => {
-                    showGestureFeedback(post.id, "logic");
-                    void toggleReaction(post.id, "logic");
-                  }}
+                  style={styles.headerIconButton}
+                  onPress={() => router.push("/notifications")}
                 >
                   <Ionicons
-                    name="bulb"
-                    size={14}
-                    color={theme.colors.primary}
-                  />
-                  <Text style={styles.scoreLabel}>論理 {post.logicCount}</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.scoreItem,
-                    !isIdentityReady && styles.scoreItemDisabled,
-                  ]}
-                  disabled={!isIdentityReady}
-                  onPress={() => {
-                    showGestureFeedback(post.id, "routine");
-                    void toggleReaction(post.id, "routine");
-                  }}
-                >
-                  <Ionicons
-                    name="ribbon"
-                    size={14}
-                    color={theme.colors.primary}
-                  />
-                  <Text style={styles.scoreLabel}>
-                    一貫性 {post.routineCount}
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.postActions}>
-                {!isOwner && (
-                  <Pressable
-                    style={styles.postActionItem}
-                    onPress={() => void toggleSave(post.id)}
-                  >
-                    <Ionicons
-                      name={
-                        savedPostIds.has(post.id)
-                          ? "bookmark"
-                          : "bookmark-outline"
-                      }
-                      size={16}
-                      color={theme.colors.textSub}
-                    />
-                    <Text style={styles.postActionText}>
-                      保存 {post.saveCount}
-                    </Text>
-                  </Pressable>
-                )}
-                <Pressable
-                  style={styles.postActionItem}
-                  onPress={() => void onRepost(post)}
-                >
-                  <Ionicons
-                    name="repeat-outline"
-                    size={16}
+                    name="notifications"
+                    size={18}
                     color={theme.colors.textSub}
                   />
-                  <Text style={styles.postActionText}>再投稿</Text>
                 </Pressable>
-                {isOwner ? (
-                  <Pressable
-                    style={styles.postActionItem}
-                    onPress={() => onArchive(post)}
-                  >
-                    <Ionicons
-                      name="archive-outline"
-                      size={16}
-                      color={theme.colors.textSub}
-                    />
-                    <Text style={styles.postActionText}>アーカイブ</Text>
-                  </Pressable>
-                ) : null}
-                {isOwner ? (
-                  <Pressable
-                    style={styles.postActionItem}
-                    onPress={() => onDelete(post)}
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={16}
-                      color={theme.colors.danger}
-                    />
-                    <Text
-                      style={[
-                        styles.postActionText,
-                        { color: theme.colors.danger },
-                      ]}
-                    >
-                      削除
-                    </Text>
-                  </Pressable>
-                ) : null}
               </View>
+            </View>
 
-              <View style={styles.commentSection}>
-                <Text style={styles.commentSectionTitle}>コメント</Text>
-                <View style={styles.commentInputRow}>
-                  <TextInput
-                    value={commentInputByPost[post.id] ?? ""}
-                    onChangeText={(text) =>
-                      setCommentInputByPost((prev) => ({
-                        ...prev,
-                        [post.id]: text,
-                      }))
-                    }
-                    placeholder="コメントを書く（@username でメンション）"
-                    placeholderTextColor={theme.colors.textSub}
-                    style={styles.commentInput}
+            <View style={styles.statsRow}>
+              <View>
+                <Text style={styles.statLabel}>継続日数</Text>
+                <Text style={styles.statValue}>{streakDays}日</Text>
+              </View>
+              <View>
+                <Text style={styles.statLabel}>現在のレベル</Text>
+                <Text style={styles.statValueDark}>Lv.{level}</Text>
+              </View>
+              <View>
+                <Text style={styles.statLabel}>獲得スコア</Text>
+                <Text style={styles.statValue}>
+                  {totalScore.toLocaleString()} pts
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+
+          {isRefreshing ? (
+            <View style={styles.refreshIndicatorRow}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            </View>
+          ) : null}
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.storyList}
+          >
+            {stories.map((story) => (
+              <Pressable
+                key={story.id}
+                style={styles.storyItem}
+                onPress={() =>
+                  router.push(
+                    story.id === "my-create"
+                      ? "/story-create"
+                      : `/story/${story.id}`,
+                  )
+                }
+              >
+                <View
+                  style={[
+                    styles.storyRing,
+                    story.active && styles.storyRingActive,
+                  ]}
+                >
+                  <Image
+                    source={{ uri: story.image }}
+                    style={styles.storyAvatar}
                   />
+                </View>
+                <Text style={styles.storyName} numberOfLines={1}>
+                  {story.userName}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={styles.actionRow}>
+            <CustomButton
+              label="ストーリー投稿"
+              onPress={() => router.push("/story-create")}
+              style={styles.actionButton}
+              textStyle={styles.actionButtonText}
+            />
+            <CustomButton
+              label={
+                canCreatePost
+                  ? `通常投稿 (${postCredits})`
+                  : "通常投稿 (LOCKED)"
+              }
+              onPress={() =>
+                router.push(canCreatePost ? "/post-create" : "/(tabs)/create")
+              }
+              variant={canCreatePost ? "outline" : "secondary"}
+              style={styles.actionButton}
+              textStyle={styles.actionButtonText}
+            />
+          </View>
+        </View>
+
+        {posts.map((post) => {
+          const isOwner =
+            currentOwner.length > 0 && post.userId === currentOwner;
+          return (
+            <View key={post.id} style={styles.card}>
+              <View style={styles.postTopSection}>
+                <View style={styles.cardHeader}>
                   <Pressable
-                    style={styles.commentSendButton}
-                    onPress={() => void onSubmitComment(post.id)}
+                    style={styles.userRow}
+                    onPress={() => router.push(`/profile/${post.userId}`)}
                   >
-                    <Ionicons
-                      name="send"
-                      size={14}
-                      color={theme.colors.onPrimary}
-                    />
+                    {post.userAvatar ? (
+                      <Image
+                        source={{ uri: post.userAvatar }}
+                        style={styles.userAvatar}
+                      />
+                    ) : (
+                      <View style={styles.userAvatarPlaceholder} />
+                    )}
+                    <Text style={styles.user}>{post.userName}</Text>
                   </Pressable>
                 </View>
 
-                {(commentsByPost[post.id] ?? []).length === 0 ? (
-                  <Text style={styles.commentEmptyText}>
-                    最初のコメントをしてみよう。
-                  </Text>
-                ) : null}
-
-                {(commentsByPost[post.id] ?? []).map((comment) => (
-                  <View key={comment.id} style={styles.commentCard}>
-                    <View style={styles.commentHeaderRow}>
-                      <Pressable
-                        style={styles.commentOwnerRow}
-                        onPress={() => {
-                          if (comment.ownerId) {
-                            router.push(`/profile/${comment.ownerId}`);
-                          }
-                        }}
-                      >
-                        {comment.ownerAvatar ? (
-                          <Image
-                            source={{ uri: comment.ownerAvatar }}
-                            style={styles.commentAvatar}
-                          />
-                        ) : (
-                          <View style={styles.commentAvatarPlaceholder} />
-                        )}
-                        <Text style={styles.commentOwner}>
-                          {comment.ownerName}
-                        </Text>
-                      </Pressable>
-
-                      <Pressable
+                <Text style={styles.day}>{post.title}</Text>
+              </View>
+              <View style={styles.imagePressable}>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={(event) => {
+                    const pageIndex = Math.round(
+                      event.nativeEvent.contentOffset.x / cardImageWidth,
+                    );
+                    setVisibleImageIndexByPost((prev) => ({
+                      ...prev,
+                      [post.id]: pageIndex,
+                    }));
+                  }}
+                  style={styles.imageCarousel}
+                >
+                  {(post.imageUrls.length > 0
+                    ? post.imageUrls
+                    : [post.image]
+                  ).map((uri, index) => (
+                    <Pressable
+                      key={`${post.id}-${index}-${uri}`}
+                      onLongPress={() => onPostLongPress(post.id)}
+                      onPress={() =>
+                        onPostTap(
+                          post.id,
+                          post.imageUrls.length > 0
+                            ? post.imageUrls
+                            : [post.image],
+                          index,
+                        )
+                      }
+                      style={[styles.imageSlide, { width: cardImageWidth }]}
+                    >
+                      <Image
+                        source={{ uri }}
+                        style={[styles.image, { height: cardImageHeight }]}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <View style={styles.imageDotsRow}>
+                  {(post.imageUrls.length > 0
+                    ? post.imageUrls
+                    : [post.image]
+                  ).map((_, index) => {
+                    const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
+                    const isActive = currentIndex === index;
+                    return (
+                      <View
+                        key={`${post.id}-dot-${index}`}
                         style={[
-                          styles.commentLikeButton,
-                          !isIdentityReady && styles.commentLikeButtonDisabled,
+                          styles.imageDot,
+                          isActive && styles.imageDotActive,
                         ]}
-                        disabled={!isIdentityReady}
-                        onPress={() => void onToggleCommentLike(comment)}
-                      >
-                        <Ionicons
-                          name={comment.likedByMe ? "heart" : "heart-outline"}
-                          size={14}
-                          color={
-                            comment.likedByMe
-                              ? theme.colors.danger
-                              : theme.colors.textSub
-                          }
-                        />
-                        <Text style={styles.commentLikeText}>
-                          {comment.likeCount}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <Text style={styles.commentText}>
-                      {renderCommentContent(comment.content)}
+                      />
+                    );
+                  })}
+                </View>
+                {post.imageCount > 1 ? (
+                  <View style={styles.multipleBadge}>
+                    <Ionicons
+                      name="albums"
+                      size={12}
+                      color={theme.colors.onPrimary}
+                    />
+                    <Text style={styles.multipleBadgeText}>
+                      {post.imageCount}
                     </Text>
                   </View>
-                ))}
+                ) : null}
+                {gestureFeedback?.postId === post.id ? (
+                  <View
+                    style={[
+                      styles.gesturePopup,
+                      {
+                        backgroundColor: gestureFeedback.backgroundColor,
+                        borderColor: gestureFeedback.borderColor,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={gestureFeedback.icon}
+                      size={18}
+                      color={theme.colors.onPrimary}
+                    />
+                    <Text style={styles.gesturePopupText}>
+                      {gestureFeedback.label}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.postBottomSection}>
+                <Text style={styles.gestureHint}>
+                  長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
+                </Text>
+
+                <Text style={styles.logLabel}>LOG:</Text>
+                <Text style={styles.log}>{post.log}</Text>
+                <View style={styles.tagRow}>
+                  <Ionicons
+                    name="pricetags"
+                    size={14}
+                    color={theme.colors.primary}
+                  />
+                  <Text style={styles.tags}>{post.tags.join(" ")}</Text>
+                </View>
+
+                <View style={styles.scoreRow}>
+                  <Pressable
+                    style={[
+                      styles.scoreItem,
+                      !isIdentityReady && styles.scoreItemDisabled,
+                    ]}
+                    disabled={!isIdentityReady}
+                    onPress={() => {
+                      showGestureFeedback(post.id, "passion");
+                      void toggleReaction(post.id, "passion");
+                    }}
+                  >
+                    <Ionicons
+                      name="flame"
+                      size={14}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.scoreLabel}>
+                      情熱 {post.passionCount}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.scoreItem,
+                      !isIdentityReady && styles.scoreItemDisabled,
+                    ]}
+                    disabled={!isIdentityReady}
+                    onPress={() => {
+                      showGestureFeedback(post.id, "logic");
+                      void toggleReaction(post.id, "logic");
+                    }}
+                  >
+                    <Ionicons
+                      name="bulb"
+                      size={14}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.scoreLabel}>
+                      論理 {post.logicCount}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.scoreItem,
+                      !isIdentityReady && styles.scoreItemDisabled,
+                    ]}
+                    disabled={!isIdentityReady}
+                    onPress={() => {
+                      showGestureFeedback(post.id, "routine");
+                      void toggleReaction(post.id, "routine");
+                    }}
+                  >
+                    <Ionicons
+                      name="ribbon"
+                      size={14}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.scoreLabel}>
+                      一貫性 {post.routineCount}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.postActions}>
+                  {!isOwner && (
+                    <Pressable
+                      style={styles.postActionItem}
+                      onPress={() => void toggleSave(post.id)}
+                    >
+                      <Ionicons
+                        name={
+                          savedPostIds.has(post.id)
+                            ? "bookmark"
+                            : "bookmark-outline"
+                        }
+                        size={16}
+                        color={theme.colors.textSub}
+                      />
+                      <Text style={styles.postActionText}>
+                        保存 {post.saveCount}
+                      </Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() => void onRepost(post)}
+                  >
+                    <Ionicons
+                      name="repeat-outline"
+                      size={16}
+                      color={theme.colors.textSub}
+                    />
+                    <Text style={styles.postActionText}>再投稿</Text>
+                  </Pressable>
+                  {isOwner ? (
+                    <Pressable
+                      style={styles.postActionItem}
+                      onPress={() => onArchive(post)}
+                    >
+                      <Ionicons
+                        name="archive-outline"
+                        size={16}
+                        color={theme.colors.textSub}
+                      />
+                      <Text style={styles.postActionText}>アーカイブ</Text>
+                    </Pressable>
+                  ) : null}
+                  {isOwner ? (
+                    <Pressable
+                      style={styles.postActionItem}
+                      onPress={() => onDelete(post)}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={16}
+                        color={theme.colors.danger}
+                      />
+                      <Text
+                        style={[
+                          styles.postActionText,
+                          { color: theme.colors.danger },
+                        ]}
+                      >
+                        削除
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <View style={styles.commentSection}>
+                  <Text style={styles.commentSectionTitle}>コメント</Text>
+                  <View style={styles.commentInputRow}>
+                    <TextInput
+                      value={commentInputByPost[post.id] ?? ""}
+                      onChangeText={(text) =>
+                        setCommentInputByPost((prev) => ({
+                          ...prev,
+                          [post.id]: text,
+                        }))
+                      }
+                      placeholder="コメントを書く（@username でメンション）"
+                      placeholderTextColor={theme.colors.textSub}
+                      style={styles.commentInput}
+                    />
+                    <Pressable
+                      style={styles.commentSendButton}
+                      onPress={() => void onSubmitComment(post.id)}
+                    >
+                      <Ionicons
+                        name="send"
+                        size={14}
+                        color={theme.colors.onPrimary}
+                      />
+                    </Pressable>
+                  </View>
+
+                  {(commentsByPost[post.id] ?? []).length === 0 ? (
+                    <Text style={styles.commentEmptyText}>
+                      最初のコメントをしてみよう。
+                    </Text>
+                  ) : null}
+
+                  {(commentsByPost[post.id] ?? []).map((comment) => (
+                    <View key={comment.id} style={styles.commentCard}>
+                      <View style={styles.commentHeaderRow}>
+                        <Pressable
+                          style={styles.commentOwnerRow}
+                          onPress={() => {
+                            if (comment.ownerId) {
+                              router.push(`/profile/${comment.ownerId}`);
+                            }
+                          }}
+                        >
+                          {comment.ownerAvatar ? (
+                            <Image
+                              source={{ uri: comment.ownerAvatar }}
+                              style={styles.commentAvatar}
+                            />
+                          ) : (
+                            <View style={styles.commentAvatarPlaceholder} />
+                          )}
+                          <Text style={styles.commentOwner}>
+                            {comment.ownerName}
+                          </Text>
+                        </Pressable>
+
+                        <Pressable
+                          style={[
+                            styles.commentLikeButton,
+                            !isIdentityReady &&
+                              styles.commentLikeButtonDisabled,
+                          ]}
+                          disabled={!isIdentityReady}
+                          onPress={() => void onToggleCommentLike(comment)}
+                        >
+                          <Ionicons
+                            name={comment.likedByMe ? "heart" : "heart-outline"}
+                            size={14}
+                            color={
+                              comment.likedByMe
+                                ? theme.colors.danger
+                                : theme.colors.textSub
+                            }
+                          />
+                          <Text style={styles.commentLikeText}>
+                            {comment.likeCount}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <Text style={styles.commentText}>
+                        {renderCommentContent(comment.content)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
-          </View>
-        );
-      })}
+          );
+        })}
+      </Animated.ScrollView>
 
       <Modal
         visible={Boolean(imageViewerState)}
@@ -2216,9 +2278,26 @@ export default function HomeScreen() {
 
 const createStyles = () =>
   StyleSheet.create({
+    feedContentContainer: {
+      flexGrow: 1,
+      paddingBottom: theme.spacing.xl,
+    },
     topSection: {
       paddingHorizontal: theme.spacing.md,
       paddingTop: theme.spacing.md,
+    },
+    refreshIndicatorRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingTop: theme.spacing.sm,
+      marginBottom: 4,
+    },
+    refreshIndicatorText: {
+      fontSize: 12,
+      color: theme.colors.textSub,
+      fontWeight: "700",
     },
     heading: {
       fontSize: 30,
