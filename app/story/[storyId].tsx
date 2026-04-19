@@ -7,7 +7,9 @@ import {
   GestureResponderEvent,
   Image,
   ImageBackground,
+  KeyboardAvoidingView,
   Pressable,
+  Platform,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -803,171 +805,215 @@ export default function StoryViewScreen() {
   }
 
   return (
-    <View style={styles.modalRoot}>
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.backdrop, { opacity: backdropOpacity }]}
-      />
-      <Animated.View
-        style={[
-          styles.container,
-          {
-            opacity: dragOpacity,
-            transform: [{ translateY: dragY }],
-          },
-        ]}
-      >
-        <ImageBackground
-          source={{ uri: story.imageUrl ?? STORY_PLACEHOLDER_URL }}
-          style={styles.hero}
-          imageStyle={styles.heroImage}
-          resizeMode="contain"
+    <KeyboardAvoidingView
+      style={styles.keyboardRoot}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+    >
+      <View style={styles.modalRoot}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.backdrop, { opacity: backdropOpacity }]}
+        />
+        <Animated.View
+          style={[
+            styles.container,
+            {
+              opacity: dragOpacity,
+              transform: [{ translateY: dragY }],
+            },
+          ]}
         >
-          <Pressable
-            style={styles.heroOverlay}
-            onPress={onHeroTap}
-            onPressIn={() => setIsPlaybackPaused(true)}
-            onPressOut={() => setIsPlaybackPaused(false)}
-            onTouchStart={onHeroTouchStart}
-            onTouchMove={onHeroTouchMove}
-            onTouchEnd={onHeroTouchEnd}
-            onTouchCancel={() => {
-              touchStartRef.current = null;
-              setIsPlaybackPaused(false);
-            }}
+          <ImageBackground
+            source={{ uri: story.imageUrl ?? STORY_PLACEHOLDER_URL }}
+            style={styles.hero}
+            imageStyle={styles.heroImage}
+            resizeMode="contain"
           >
-            <View
-              style={[
-                styles.topBars,
-                { paddingTop: theme.spacing.md + insets.top },
-              ]}
+            <Pressable
+              style={styles.heroOverlay}
+              onPress={onHeroTap}
+              onPressIn={() => setIsPlaybackPaused(true)}
+              onPressOut={() => setIsPlaybackPaused(false)}
+              onTouchStart={onHeroTouchStart}
+              onTouchMove={onHeroTouchMove}
+              onTouchEnd={onHeroTouchEnd}
+              onTouchCancel={() => {
+                touchStartRef.current = null;
+                setIsPlaybackPaused(false);
+              }}
             >
-              {storyQueue.map((item, index) => {
-                const isDone = index < activeIndex;
-                const isCurrent = index === activeIndex;
-                const fill = isDone ? 1 : isCurrent ? progress : 0;
-                return (
-                  <View key={item.id} style={styles.bar}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        { width: `${Math.max(0, Math.min(1, fill)) * 100}%` },
-                      ]}
-                    />
-                  </View>
-                );
-              })}
-            </View>
+              <View
+                style={[
+                  styles.topBars,
+                  { paddingTop: theme.spacing.md + insets.top },
+                ]}
+              >
+                {storyQueue.map((item, index) => {
+                  const isDone = index < activeIndex;
+                  const isCurrent = index === activeIndex;
+                  const fill = isDone ? 1 : isCurrent ? progress : 0;
+                  return (
+                    <View key={item.id} style={styles.bar}>
+                      <View
+                        style={[
+                          styles.barFill,
+                          { width: `${Math.max(0, Math.min(1, fill)) * 100}%` },
+                        ]}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
 
-            <View style={styles.topRow}>
-              <View style={styles.profileHeader}>
-                <Image
-                  source={{ uri: profileAvatarUrl ?? AVATAR_PLACEHOLDER_URL }}
-                  style={styles.profileAvatar}
-                />
-                <View>
-                  <Text style={styles.name}>{displayName}</Text>
-                  <Text style={styles.time}>{timeLabel}</Text>
+              <View style={styles.topRow}>
+                <View style={styles.profileHeader}>
+                  <Image
+                    source={{ uri: profileAvatarUrl ?? AVATAR_PLACEHOLDER_URL }}
+                    style={styles.profileAvatar}
+                  />
+                  <View>
+                    <Text style={styles.name}>{displayName}</Text>
+                    <Text style={styles.time}>{timeLabel}</Text>
+                  </View>
+                </View>
+                <View style={styles.actions}>
+                  <Pressable style={styles.actionBtn}>
+                    <Ionicons
+                      name="ellipsis-horizontal"
+                      size={16}
+                      color={theme.colors.text}
+                    />
+                  </Pressable>
+                  <Pressable
+                    style={styles.actionBtn}
+                    onPress={() => router.back()}
+                  >
+                    <Ionicons
+                      name="close"
+                      size={16}
+                      color={theme.colors.text}
+                    />
+                  </Pressable>
                 </View>
               </View>
-              <View style={styles.actions}>
-                <Pressable style={styles.actionBtn}>
+              {gestureFeedback ? (
+                <View
+                  style={[
+                    styles.gesturePopup,
+                    {
+                      backgroundColor: gestureFeedback.backgroundColor,
+                      borderColor: gestureFeedback.borderColor,
+                    },
+                  ]}
+                >
                   <Ionicons
-                    name="ellipsis-horizontal"
-                    size={16}
-                    color={theme.colors.text}
+                    name={gestureFeedback.icon}
+                    size={20}
+                    color={theme.colors.onPrimary}
+                  />
+                  <Text style={styles.gesturePopupText}>
+                    {gestureFeedback.label}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          </ImageBackground>
+
+          <View
+            style={[styles.bottomPanel, { paddingBottom: theme.spacing.md }]}
+          >
+            {story.caption ? (
+              <Text style={styles.caption}>{story.caption}</Text>
+            ) : null}
+            <View style={styles.inputRow}>
+              <TextInput
+                value={message}
+                onChangeText={setMessage}
+                placeholder="DMを送信"
+                placeholderTextColor={theme.colors.textSub}
+                style={styles.input}
+                onFocus={() => setIsPlaybackPaused(true)}
+                onBlur={() => setIsPlaybackPaused(false)}
+              />
+              <View style={styles.reactionActions}>
+                <Pressable
+                  accessibilityLabel="情熱を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.passion &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("passion")}
+                >
+                  <Ionicons
+                    name="flame"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.passion
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
                   />
                 </Pressable>
                 <Pressable
-                  style={styles.actionBtn}
-                  onPress={() => router.back()}
+                  accessibilityLabel="論理を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.logic &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("logic")}
                 >
-                  <Ionicons name="close" size={16} color={theme.colors.text} />
+                  <Ionicons
+                    name="bulb"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.logic
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="一貫性を送る"
+                  style={[
+                    styles.reactionActionBtn,
+                    reactionRecordIdByType.routine &&
+                      styles.reactionActionBtnActive,
+                  ]}
+                  onPress={() => onToggleReaction("routine")}
+                >
+                  <Ionicons
+                    name="ribbon"
+                    size={18}
+                    color={
+                      reactionRecordIdByType.routine
+                        ? theme.colors.white
+                        : theme.colors.primary
+                    }
+                  />
                 </Pressable>
               </View>
-            </View>
-            {gestureFeedback ? (
-              <View
+              <Pressable
                 style={[
-                  styles.gesturePopup,
-                  {
-                    backgroundColor: gestureFeedback.backgroundColor,
-                    borderColor: gestureFeedback.borderColor,
-                  },
+                  styles.sendBtn,
+                  isSendingMessage && styles.sendBtnDisabled,
                 ]}
+                onPress={() => void onSendStoryMessage()}
+                disabled={isSendingMessage}
               >
                 <Ionicons
-                  name={gestureFeedback.icon}
+                  name="send"
                   size={20}
                   color={theme.colors.onPrimary}
                 />
-                <Text style={styles.gesturePopupText}>
-                  {gestureFeedback.label}
-                </Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </ImageBackground>
-
-        <View style={[styles.bottomPanel, { paddingBottom: theme.spacing.md }]}>
-          {story.caption ? (
-            <Text style={styles.caption}>{story.caption}</Text>
-          ) : null}
-          <View style={styles.row}>
-            <Pressable
-              style={[
-                styles.reactionBox,
-                reactionRecordIdByType.passion && styles.reactionBoxActive,
-              ]}
-              onPress={() => onToggleReaction("passion")}
-            >
-              <Ionicons name="flame" size={18} color={theme.colors.primary} />
-              <Text style={styles.reactionLabel}>情熱</Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.reactionBox,
-                reactionRecordIdByType.logic && styles.reactionBoxActive,
-              ]}
-              onPress={() => onToggleReaction("logic")}
-            >
-              <Ionicons name="bulb" size={18} color={theme.colors.primary} />
-              <Text style={styles.reactionLabel}>論理</Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.reactionBox,
-                reactionRecordIdByType.routine && styles.reactionBoxActive,
-              ]}
-              onPress={() => onToggleReaction("routine")}
-            >
-              <Ionicons name="ribbon" size={18} color={theme.colors.primary} />
-              <Text style={styles.reactionLabel}>一貫性</Text>
-            </Pressable>
+              </Pressable>
+            </View>
           </View>
-
-          <View style={styles.inputRow}>
-            <TextInput
-              value={message}
-              onChangeText={setMessage}
-              placeholder="ストーリー参照でメッセージを送信"
-              placeholderTextColor={theme.colors.textSub}
-              style={styles.input}
-            />
-            <Pressable
-              style={[
-                styles.sendBtn,
-                isSendingMessage && styles.sendBtnDisabled,
-              ]}
-              onPress={() => void onSendStoryMessage()}
-              disabled={isSendingMessage}
-            >
-              <Ionicons name="send" size={20} color={theme.colors.onPrimary} />
-            </Pressable>
-          </View>
-        </View>
-      </Animated.View>
-    </View>
+        </Animated.View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -976,6 +1022,9 @@ const createStyles = () =>
     modalRoot: {
       flex: 1,
       backgroundColor: "transparent",
+    },
+    keyboardRoot: {
+      flex: 1,
     },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
@@ -1122,30 +1171,6 @@ const createStyles = () =>
       fontWeight: "700",
       marginBottom: theme.spacing.sm,
     },
-    row: {
-      flexDirection: "row",
-      gap: 8,
-      marginBottom: 10,
-    },
-    reactionBox: {
-      flex: 1,
-      borderRadius: theme.radius.md,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface,
-      alignItems: "center",
-      paddingVertical: 8,
-      paddingHorizontal: 6,
-    },
-    reactionBoxActive: {
-      borderColor: theme.colors.primary,
-      backgroundColor: theme.colors.white,
-    },
-    reactionLabel: {
-      color: theme.colors.text,
-      marginTop: 4,
-      fontWeight: "700",
-    },
     inputRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -1160,6 +1185,25 @@ const createStyles = () =>
       backgroundColor: theme.colors.surface,
       paddingHorizontal: theme.spacing.md,
       color: theme.colors.text,
+    },
+    reactionActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    reactionActionBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    reactionActionBtnActive: {
+      borderColor: theme.colors.primary,
+      backgroundColor: theme.colors.primary,
     },
     sendBtn: {
       width: 52,
