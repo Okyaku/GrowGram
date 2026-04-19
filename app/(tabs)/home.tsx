@@ -540,6 +540,8 @@ export default function HomeScreen() {
   const inFlightReactionKeysRef = React.useRef<Set<string>>(new Set());
   const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
   const hasLoadedInitialFeedRef = React.useRef(false);
+  const isRefreshingRef = React.useRef(false);
+  const refreshTriggerArmedRef = React.useRef(true);
   const [isInitialFeedLoading, setIsInitialFeedLoading] = React.useState(true);
   const isIdentityReady = Boolean(currentOwner && currentUserId);
 
@@ -1156,16 +1158,19 @@ export default function HomeScreen() {
   );
 
   const onRefresh = React.useCallback(async () => {
-    if (isRefreshing) {
+    if (isRefreshingRef.current) {
       return;
     }
+
+    isRefreshingRef.current = true;
     setIsRefreshing(true);
     try {
       await loadFeed();
     } finally {
+      isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [isRefreshing, loadFeed]);
+  }, [loadFeed]);
 
   const isUnauthorizedGraphQLError = React.useCallback((error: unknown) => {
     const serialized = JSON.stringify(error);
@@ -1678,8 +1683,27 @@ export default function HomeScreen() {
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
         useNativeDriver: true,
+        listener: (event) => {
+          const y = (event as { nativeEvent: { contentOffset: { y: number } } })
+            .nativeEvent.contentOffset.y;
+
+          // Re-arm once the list returns to top so next pull can trigger again.
+          if (y >= 0) {
+            refreshTriggerArmedRef.current = true;
+            return;
+          }
+
+          if (
+            y <= -42 &&
+            refreshTriggerArmedRef.current &&
+            !isRefreshingRef.current
+          ) {
+            refreshTriggerArmedRef.current = false;
+            void onRefresh();
+          }
+        },
       }),
-    [scrollY],
+    [onRefresh, scrollY],
   );
 
   const headerCompensateTranslateY = React.useMemo(
