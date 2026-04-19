@@ -67,6 +67,11 @@ type RoadmapItem = {
   postedMilestoneIds: string[];
 };
 
+type ArchivedRoadmapItem = RoadmapItem & {
+  archivedAt: string;
+  archivedReason?: string;
+};
+
 type AppNotification = {
   id: string;
   message: string;
@@ -83,6 +88,7 @@ type ActivitySource =
 
 type RoadmapContextType = {
   roadmaps: RoadmapItem[];
+  archivedRoadmaps: ArchivedRoadmapItem[];
   activeRoadmapId: string;
   activeRoadmap: RoadmapItem;
   milestones: Milestone[];
@@ -109,16 +115,14 @@ type RoadmapContextType = {
     level?: RoadmapLevel;
   }) => void;
   addBlankRoadmap: (params: { goal: string; level?: RoadmapLevel }) => void;
-  updateRoadmapGoal: (params: {
-    roadmapId: string;
-    goal: string;
-  }) => void;
+  updateRoadmapGoal: (params: { roadmapId: string; goal: string }) => void;
   addMilestone: (params: {
     roadmapId: string;
     title: string;
     subtitle: string;
     insertAt?: number;
   }) => void;
+  deleteMilestone: (params: { roadmapId: string; milestoneId: string }) => void;
   moveMilestone: (params: {
     roadmapId: string;
     milestoneId: string;
@@ -138,10 +142,12 @@ type RoadmapContextType = {
   logout: (options?: { clearProgress?: boolean }) => void;
   clearCurrentMilestone: () => void;
   consumePostCredit: (milestoneId: string) => boolean;
+  archiveRoadmap: (params: { roadmapId: string; reason?: string }) => void;
 };
 
 type PersistedRoadmapState = {
   roadmaps: RoadmapItem[];
+  archivedRoadmaps: ArchivedRoadmapItem[];
   activeRoadmapId: string;
   streakDays: number;
   lastActivityDate: string;
@@ -214,7 +220,7 @@ const flattenTasksToMilestones = (
     milestone.tasks.map((task, taskIndex) => ({
       id: `${roadmapId}-m${milestoneIndex + 1}-${taskIndex + 1}`,
       title: task.title,
-      subtitle: `${milestone.title} | ${task.description}`,
+      subtitle: `${milestone.description} | ${task.description}`,
       sourceMilestoneId: milestone.id,
       sourceTaskId: task.id,
     })),
@@ -282,7 +288,23 @@ const normalizeRoadmapItem = (item: RoadmapItem): RoadmapItem => {
       : fallbackMilestones;
   const normalizedMilestones =
     Array.isArray(item.milestoneTemplates) && item.milestoneTemplates.length > 0
-      ? item.milestoneTemplates
+      ? item.milestoneTemplates.map((template) => {
+          const sourcePhase = normalizedRoadmapMilestones.find(
+            (phase) => phase.id === template.sourceMilestoneId,
+          );
+          const sourceTask = sourcePhase?.tasks.find(
+            (task) => task.id === template.sourceTaskId,
+          );
+
+          if (!sourcePhase || !sourceTask) {
+            return template;
+          }
+
+          return {
+            ...template,
+            subtitle: `${sourcePhase.description} | ${sourceTask.description}`,
+          };
+        })
       : flattenTasksToMilestones(
           item.id,
           safeGoal,
@@ -327,6 +349,9 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [roadmaps, setRoadmaps] = useState<RoadmapItem[]>([initialRoadmap]);
+  const [archivedRoadmaps, setArchivedRoadmaps] = useState<
+    ArchivedRoadmapItem[]
+  >([]);
   const [activeRoadmapId, setActiveRoadmapId] = useState<string>(
     initialRoadmap.id,
   );
@@ -374,6 +399,23 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
 
           const fallbackActive = parsed.roadmaps[0]?.id ?? initialRoadmap.id;
           setActiveRoadmapId(parsed.activeRoadmapId || fallbackActive);
+        }
+
+        if (Array.isArray(parsed.archivedRoadmaps)) {
+          setArchivedRoadmaps(
+            parsed.archivedRoadmaps.map((item) => ({
+              ...normalizeRoadmapItem(item),
+              archivedAt:
+                typeof item.archivedAt === "string" &&
+                item.archivedAt.length > 0
+                  ? item.archivedAt
+                  : new Date().toISOString(),
+              archivedReason:
+                typeof item.archivedReason === "string"
+                  ? item.archivedReason
+                  : undefined,
+            })),
+          );
         }
 
         if (typeof parsed.streakDays === "number") {
@@ -427,6 +469,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     const persistState = async () => {
       const payload: PersistedRoadmapState = {
         roadmaps,
+        archivedRoadmaps,
         activeRoadmapId,
         streakDays,
         lastActivityDate,
@@ -449,6 +492,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [
     activityByDate,
     activeRoadmapId,
+    archivedRoadmaps,
     isHydrated,
     lastActivityDate,
     notifications,
@@ -745,6 +789,71 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     );
   };
 
+  const deleteMilestone: RoadmapContextType["deleteMilestone"] = ({
+    roadmapId,
+    milestoneId,
+  }) => {
+    const roadmap = roadmaps.find((item) => item.id === roadmapId);
+    if (!roadmap) {
+      return;
+    }
+
+    const targetIndex = roadmap.milestoneTemplates.findIndex(
+      (item) => item.id === milestoneId,
+    );
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const targetTemplate = roadmap.milestoneTemplates[targetIndex];
+
+    setRoadmaps((prev) =>
+      prev.map((item) => {
+        if (item.id !== roadmapId) {
+          return item;
+        }
+
+        const nextTemplates = item.milestoneTemplates.filter(
+          (template) => template.id !== milestoneId,
+        );
+        const nextMilestones = targetTemplate.sourceMilestoneId
+          ? item.roadmapMilestones.filter(
+              (phase) => phase.id !== targetTemplate.sourceMilestoneId,
+            )
+          : item.roadmapMilestones.filter((_, index) => index !== targetIndex);
+        const decreasedCount =
+          targetIndex < item.completedCount
+            ? item.completedCount - 1
+            : item.completedCount;
+
+        return {
+          ...item,
+          milestoneTemplates: nextTemplates,
+          roadmapMilestones: nextMilestones,
+          completedCount: Math.max(
+            0,
+            Math.min(decreasedCount, nextTemplates.length),
+          ),
+          unlockedMilestoneIds: item.unlockedMilestoneIds.filter(
+            (id) => id !== milestoneId,
+          ),
+          postedMilestoneIds: item.postedMilestoneIds.filter(
+            (id) => id !== milestoneId,
+          ),
+        };
+      }),
+    );
+
+    setNotifications((prev) => [
+      {
+        id: `n-delete-milestone-${Date.now()}`,
+        message: `マイルストーン「${targetTemplate.title}」を削除しました。`,
+        time: nowText(),
+      },
+      ...prev,
+    ]);
+  };
+
   const moveMilestone: RoadmapContextType["moveMilestone"] = ({
     roadmapId,
     milestoneId,
@@ -1031,6 +1140,41 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     return true;
   };
 
+  const archiveRoadmap: RoadmapContextType["archiveRoadmap"] = ({
+    roadmapId,
+    reason,
+  }) => {
+    const removedRoadmap = roadmaps.find((roadmap) => roadmap.id === roadmapId);
+    if (!removedRoadmap) {
+      return;
+    }
+
+    const remainingRoadmaps = roadmaps.filter(
+      (roadmap) => roadmap.id !== roadmapId,
+    );
+    const nextActiveRoadmapId = remainingRoadmaps[0]?.id ?? initialRoadmap.id;
+
+    setRoadmaps(remainingRoadmaps);
+
+    setArchivedRoadmaps((prev) => [
+      {
+        ...removedRoadmap,
+        archivedAt: new Date().toISOString(),
+        archivedReason: reason,
+      },
+      ...prev,
+    ]);
+    setActiveRoadmapId(nextActiveRoadmapId);
+    setNotifications((prev) => [
+      {
+        id: `n-archive-${Date.now()}`,
+        message: `目標「${removedRoadmap.goal}」を履歴へ移動しました。`,
+        time: nowText(),
+      },
+      ...prev,
+    ]);
+  };
+
   const logout: RoadmapContextType["logout"] = (options) => {
     if (!options?.clearProgress) {
       return;
@@ -1059,6 +1203,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
     <RoadmapContext.Provider
       value={{
         roadmaps,
+        archivedRoadmaps,
         activeRoadmapId,
         activeRoadmap,
         milestones,
@@ -1083,6 +1228,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
         addBlankRoadmap,
         updateRoadmapGoal,
         addMilestone,
+        deleteMilestone,
         moveMilestone,
         generateRoadmap,
         updateMilestone,
@@ -1096,6 +1242,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
         logout,
         clearCurrentMilestone,
         consumePostCredit,
+        archiveRoadmap,
       }}
     >
       {children}

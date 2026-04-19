@@ -4,6 +4,7 @@ import React from "react";
 import { Alert, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { ScreenContainer } from "../src/components/common";
 import { Text } from "../src/components/common/Typography";
+import { useRoadmap } from "../src/store/roadmap-context";
 
 type GoalDescriptionParams = {
   goalType?: string;
@@ -17,6 +18,7 @@ const STORAGE_KEY = "@growgram/goal-description-notes/v1";
 export default function GoalDescriptionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<GoalDescriptionParams>();
+  const { milestones, clearCurrentMilestone } = useRoadmap();
 
   const goalType =
     typeof params.goalType === "string" ? params.goalType : "step";
@@ -27,6 +29,14 @@ export default function GoalDescriptionScreen() {
   const noteKey = `${goalType}:${goalId}`;
   const [description, setDescription] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
+  const targetMilestone = React.useMemo(
+    () =>
+      goalType === "milestone"
+        ? milestones.find((milestone) => milestone.id === goalId)
+        : null,
+    [goalId, goalType, milestones],
+  );
+  const canCompleteMilestone = targetMilestone?.status === "current";
 
   React.useEffect(() => {
     let mounted = true;
@@ -72,11 +82,40 @@ export default function GoalDescriptionScreen() {
     }
   };
 
+  const onCompleteMilestone = () => {
+    if (goalType !== "milestone") {
+      return;
+    }
+
+    if (!targetMilestone) {
+      Alert.alert("対象が見つかりません", "リスト画面から再度開いてください。");
+      return;
+    }
+
+    if (targetMilestone.status === "completed") {
+      Alert.alert("達成済み", "この中期目標はすでに達成済みです。");
+      return;
+    }
+
+    if (targetMilestone.status === "locked") {
+      Alert.alert("未解放", "先に現在の中期目標を達成してください。");
+      return;
+    }
+
+    clearCurrentMilestone();
+    Alert.alert("達成しました", "次の中期目標へ更新しました。", [
+      {
+        text: "OK",
+        onPress: () => router.back(),
+      },
+    ]);
+  };
+
   return (
     <ScreenContainer backgroundColor="#F8F9FB">
       <View style={styles.container}>
         <Text style={styles.typeLabel}>
-          {goalType === "milestone" ? "長期目標の説明" : "短期目標の説明"}
+          {goalType === "milestone" ? "マイルストーンの説明" : "短期目標の説明"}
         </Text>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -90,6 +129,19 @@ export default function GoalDescriptionScreen() {
           style={styles.textArea}
           textAlignVertical="top"
         />
+
+        {goalType === "milestone" ? (
+          <Pressable
+            style={[
+              styles.completeButton,
+              !canCompleteMilestone && styles.completeButtonDisabled,
+            ]}
+            onPress={onCompleteMilestone}
+            disabled={!canCompleteMilestone}
+          >
+            <Text style={styles.completeButtonText}>この目標を達成する</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.actions}>
           <Pressable style={styles.cancelButton} onPress={() => router.back()}>
@@ -156,6 +208,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
+  },
+  completeButton: {
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FF5F00",
+    marginBottom: 12,
+  },
+  completeButtonDisabled: {
+    opacity: 0.45,
+  },
+  completeButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
   },
   cancelButton: {
     flex: 1,

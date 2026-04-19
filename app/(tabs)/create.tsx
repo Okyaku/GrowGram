@@ -2,6 +2,7 @@ import React from "react";
 import {
   Alert,
   Animated,
+  Dimensions,
   Easing,
   Keyboard,
   PanResponder,
@@ -12,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
@@ -28,7 +30,43 @@ type ShortTermGoal = {
   subtitle: string;
   segmentIndex: number;
   position: number;
+  isCompleted: boolean;
 };
+
+type WizardQuestionBase = {
+  title: string;
+  required: boolean;
+};
+
+type TextWizardQuestion = WizardQuestionBase & {
+  kind: "text";
+  value: string;
+  setter: React.Dispatch<React.SetStateAction<string>>;
+  placeholder: string;
+};
+
+type ChoiceWizardQuestion = WizardQuestionBase & {
+  kind: "choice";
+  value: string;
+  setter: React.Dispatch<React.SetStateAction<string>>;
+  placeholder: string;
+  options: string[];
+  otherValue: string;
+  otherSetter: React.Dispatch<React.SetStateAction<string>>;
+};
+
+type DateWizardQuestion = WizardQuestionBase & {
+  kind: "date";
+  value: string;
+  setter: React.Dispatch<React.SetStateAction<string>>;
+  selectedDate: Date | null;
+  setSelectedDate: React.Dispatch<React.SetStateAction<Date | null>>;
+};
+
+type WizardQuestion =
+  | TextWizardQuestion
+  | ChoiceWizardQuestion
+  | DateWizardQuestion;
 
 const PRE_MILESTONE_SEGMENT = -1;
 
@@ -45,11 +83,13 @@ export default function CreateScreen() {
     updateRoadmapGoal,
     updateMilestone,
     addMilestone,
+    deleteMilestone,
     moveMilestone,
-    notifications,
+    archiveRoadmap,
   } = useRoadmap();
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
+  const initialRoadmapScrollDoneRef = React.useRef<string | null>(null);
 
   const renderMilestones = [...milestones].reverse();
   const getMilestonePosition = (index: number) => ({
@@ -63,13 +103,6 @@ export default function CreateScreen() {
       | { type: "step"; step: ShortTermGoal }
       | { type: "gap"; gapIndex: number }
     > = [];
-    const preMilestoneSteps = shortTermGoals
-      .filter((step) => step.segmentIndex === PRE_MILESTONE_SEGMENT)
-      .sort((a, b) => a.position - b.position);
-
-    preMilestoneSteps.forEach((step) => {
-      items.push({ type: "step", step });
-    });
 
     renderMilestones.forEach((milestone, milestoneIndex) => {
       items.push({ type: "milestone", milestone });
@@ -100,6 +133,14 @@ export default function CreateScreen() {
       }
     }
 
+    const preMilestoneSteps = shortTermGoals
+      .filter((step) => step.segmentIndex === PRE_MILESTONE_SEGMENT)
+      .sort((a, b) => a.position - b.position);
+
+    preMilestoneSteps.forEach((step) => {
+      items.push({ type: "step", step });
+    });
+
     return items;
   };
 
@@ -112,10 +153,10 @@ export default function CreateScreen() {
   const [addingStepPlacement, setAddingStepPlacement] = React.useState<{
     segmentIndex: number;
     position: number;
-  } | null>(
-    null,
+  } | null>(null);
+  const [shortTermGoals, setShortTermGoals] = React.useState<ShortTermGoal[]>(
+    [],
   );
-  const [shortTermGoals, setShortTermGoals] = React.useState<ShortTermGoal[]>([]);
   const [editingStepId, setEditingStepId] = React.useState("");
   const [editStepTitle, setEditStepTitle] = React.useState("");
   const [editStepSubtitle, setEditStepSubtitle] = React.useState("");
@@ -126,8 +167,13 @@ export default function CreateScreen() {
   >("intro");
   const [goalInput, setGoalInput] = React.useState("");
   const [deadlineInput, setDeadlineInput] = React.useState("");
+  const [deadlineDate, setDeadlineDate] = React.useState<Date | null>(null);
+  const [showDeadlinePicker, setShowDeadlinePicker] = React.useState(false);
   const [currentLevelInput, setCurrentLevelInput] = React.useState("");
+  const [currentLevelOtherInput, setCurrentLevelOtherInput] =
+    React.useState("");
   const [weeklyHoursInput, setWeeklyHoursInput] = React.useState("");
+  const [weeklyHoursOtherInput, setWeeklyHoursOtherInput] = React.useState("");
   const [deliverableInput, setDeliverableInput] = React.useState("");
   const [learningStyle, setLearningStyle] = React.useState<
     "practice" | "theory" | "balanced"
@@ -163,10 +209,21 @@ export default function CreateScreen() {
   const stepDragTranslateY = React.useRef(new Animated.Value(0)).current;
   const stepDragTranslateX = React.useRef(new Animated.Value(0)).current;
   const milestoneDragTranslateY = React.useRef(new Animated.Value(0)).current;
+  const addButtonDragTranslateX = React.useRef(new Animated.Value(0)).current;
+  const addButtonDragTranslateY = React.useRef(new Animated.Value(0)).current;
   const stepDragArmedIdRef = React.useRef<string | null>(null);
   const milestoneDragArmedIdRef = React.useRef<string | null>(null);
+  const addButtonDragArmedIdRef = React.useRef<string | null>(null);
+  const addButtonDidDragRef = React.useRef(false);
   const stepIsPanningRef = React.useRef(false);
   const milestoneIsPanningRef = React.useRef(false);
+  const addButtonIsPanningRef = React.useRef(false);
+  const [draggingAddButtonId, setDraggingAddButtonId] = React.useState<
+    string | null
+  >(null);
+  const [addButtonOffsets, setAddButtonOffsets] = React.useState<
+    Record<string, { x: number; y: number }>
+  >({});
   const currentMilestone = milestones.find(
     (milestone) => milestone.status === "current",
   );
@@ -212,9 +269,12 @@ export default function CreateScreen() {
       return steps.map((step) => {
         const segmentSteps = grouped.get(step.segmentIndex) ?? [];
         const sorted = [...segmentSteps].sort(
-          (left, right) => left.position - right.position || left.id.localeCompare(right.id),
+          (left, right) =>
+            left.position - right.position || left.id.localeCompare(right.id),
         );
-        const indexInSegment = sorted.findIndex((segmentStep) => segmentStep.id === step.id);
+        const indexInSegment = sorted.findIndex(
+          (segmentStep) => segmentStep.id === step.id,
+        );
         const count = sorted.length;
 
         if (count <= 1 || indexInSegment < 0) {
@@ -233,11 +293,11 @@ export default function CreateScreen() {
 
   const buildShortTermGoalsFromRoadmap = React.useCallback(() => {
     const templates = activeRoadmap.milestoneTemplates;
+    const segmentTotal = Math.max(1, templates.length - 1);
+    const lastTemplateIndex = Math.max(0, templates.length - 1);
     const segmentIndices = [
       PRE_MILESTONE_SEGMENT,
-      ...Array.from({ length: Math.max(1, templates.length - 1) }).map(
-        (_, index) => index,
-      ),
+      ...Array.from({ length: segmentTotal }).map((_, index) => index),
     ];
     const defaultPositions = [0.22, 0.5, 0.78];
 
@@ -245,13 +305,19 @@ export default function CreateScreen() {
       const baseTemplateIndex =
         segmentIndex === PRE_MILESTONE_SEGMENT
           ? 0
-          : Math.min(segmentIndex + 1, Math.max(0, templates.length - 1));
+          : Math.max(
+              0,
+              Math.min(lastTemplateIndex, templates.length - segmentIndex - 1),
+            );
       const baseTemplate = templates[baseTemplateIndex];
+      const segmentNumber =
+        segmentIndex === PRE_MILESTONE_SEGMENT ? 0 : baseTemplateIndex + 1;
       const baseTitle =
         segmentIndex === PRE_MILESTONE_SEGMENT
           ? `準備: ${baseTemplate?.title ?? "最初の一歩"}`
-          : baseTemplate?.title ?? `短期目標 ${segmentIndex + 1}`;
-      const baseSubtitle = baseTemplate?.subtitle ?? "進捗を進めるための短期目標";
+          : (baseTemplate?.title ?? `短期目標 ${segmentNumber}`);
+      const baseSubtitle =
+        baseTemplate?.subtitle ?? "進捗を進めるための短期目標";
 
       return defaultPositions.map((position, index) => ({
         id: `step-${activeRoadmap.id}-${segmentIndex}-default-${index + 1}`,
@@ -259,12 +325,14 @@ export default function CreateScreen() {
         subtitle: baseSubtitle,
         segmentIndex,
         position,
+        isCompleted: false,
       }));
     });
   }, [activeRoadmap.id, activeRoadmap.milestoneTemplates]);
 
-  const wizardQuestions = [
+  const wizardQuestions: WizardQuestion[] = [
     {
+      kind: "text",
       title: "目標を入力してください",
       value: goalInput,
       setter: setGoalInput,
@@ -272,27 +340,38 @@ export default function CreateScreen() {
       required: true,
     },
     {
+      kind: "date",
       title: "期限を入力してください",
       value: deadlineInput,
       setter: setDeadlineInput,
-      placeholder: "例: 2025年7月",
-      required: false,
+      required: true,
+      selectedDate: deadlineDate,
+      setSelectedDate: setDeadlineDate,
     },
     {
+      kind: "choice",
       title: "現在のレベルを教えてください",
       value: currentLevelInput,
       setter: setCurrentLevelInput,
-      placeholder: "例: 初心者 / 中級者",
+      otherValue: currentLevelOtherInput,
+      otherSetter: setCurrentLevelOtherInput,
+      placeholder: "選択してください",
       required: true,
+      options: ["初心者", "少し経験あり", "中級者", "上級者", "その他"],
     },
     {
+      kind: "choice",
       title: "週あたりの学習時間は？",
       value: weeklyHoursInput,
       setter: setWeeklyHoursInput,
-      placeholder: "例: 10時間",
+      otherValue: weeklyHoursOtherInput,
+      otherSetter: setWeeklyHoursOtherInput,
+      placeholder: "選択してください",
       required: true,
+      options: ["3時間", "5時間", "10時間", "15時間", "20時間", "その他"],
     },
     {
+      kind: "text",
       title: "成果物のイメージを入力",
       value: deliverableInput,
       setter: setDeliverableInput,
@@ -300,6 +379,7 @@ export default function CreateScreen() {
       required: true,
     },
     {
+      kind: "text",
       title: "挫折経験や課題",
       value: setbacksInput,
       setter: setSetbacksInput,
@@ -317,9 +397,37 @@ export default function CreateScreen() {
     setFlowStep("roadmap");
   };
 
+  const currentWizardQuestion = wizardQuestions[wizardStep];
+
+  const formatDeadlineDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return `${year}年${month}月${day}日`;
+  };
+
+  const resolveWizardValue = (question: WizardQuestion) => {
+    if (question.kind === "choice") {
+      return question.value === "その他"
+        ? question.otherValue.trim()
+        : question.value.trim();
+    }
+
+    return question.value.trim();
+  };
+
   const onSubmitWizard = async () => {
-    const current = wizardQuestions[wizardStep];
-    if (current.required && !current.value.trim()) {
+    const current = currentWizardQuestion;
+    const resolvedValue = resolveWizardValue(current);
+
+    if (current.required && !resolvedValue) {
+      if (current.kind === "choice" && current.value === "その他") {
+        Alert.alert(
+          "入力不足",
+          `${current.title}の「その他」を入力してください。`,
+        );
+        return;
+      }
       Alert.alert("入力不足", current.title);
       return;
     }
@@ -339,8 +447,14 @@ export default function CreateScreen() {
     const result = await generateRoadmap({
       goal: goalInput,
       deadline: deadlineInput,
-      currentLevel: currentLevelInput,
-      weeklyHours: weeklyHoursInput,
+      currentLevel:
+        currentLevelInput === "その他"
+          ? currentLevelOtherInput.trim()
+          : currentLevelInput,
+      weeklyHours:
+        weeklyHoursInput === "その他"
+          ? weeklyHoursOtherInput.trim()
+          : weeklyHoursInput,
       deliverable: deliverableInput,
       learningStyle,
       setbacks: setbacksInput,
@@ -352,8 +466,12 @@ export default function CreateScreen() {
       setFlowStep("roadmap");
       setGoalInput("");
       setDeadlineInput("");
+      setDeadlineDate(null);
+      setShowDeadlinePicker(false);
       setCurrentLevelInput("");
+      setCurrentLevelOtherInput("");
       setWeeklyHoursInput("");
+      setWeeklyHoursOtherInput("");
       setDeliverableInput("");
       setSetbacksInput("");
       setWizardStep(0);
@@ -369,9 +487,11 @@ export default function CreateScreen() {
 
   const onBackWizard = () => {
     if (wizardStep > 0) {
+      setShowDeadlinePicker(false);
       setWizardStep((prev) => prev - 1);
       return;
     }
+    setShowDeadlinePicker(false);
     setFlowStep("intro");
   };
 
@@ -445,25 +565,6 @@ export default function CreateScreen() {
     setAddingMilestoneIndex(null);
   };
 
-  const moveShortTermGoalWithinSegment = React.useCallback(
-    (stepId: string, position: number) => {
-      setShortTermGoals((prev) => {
-        const exists = prev.some((step) => step.id === stepId);
-        if (!exists) {
-          return prev;
-        }
-
-        const safePosition = Math.max(0.06, Math.min(0.94, position));
-        const updated = prev.map((step) =>
-          step.id === stepId ? { ...step, position: safePosition } : step,
-        );
-
-        return normalizeStepsInSegments(updated);
-      });
-    },
-    [normalizeStepsInSegments],
-  );
-
   const onAddStep = () => {
     if (!newStepTitle.trim()) {
       Alert.alert("入力不足", "短期目標名を入力してください。");
@@ -478,6 +579,7 @@ export default function CreateScreen() {
         subtitle: newStepSubtitle.trim(),
         segmentIndex: targetSegmentIndex,
         position: Math.max(0.06, Math.min(0.94, targetPosition)),
+        isCompleted: false,
       };
       return normalizeStepsInSegments([...prev, newStep]);
     });
@@ -514,10 +616,104 @@ export default function CreateScreen() {
     setInlineStepTitle("");
   };
 
+  const onToggleStepCompleted = (stepId: string) => {
+    setShortTermGoals((prev) =>
+      prev.map((step) =>
+        step.id === stepId
+          ? {
+              ...step,
+              isCompleted: !step.isCompleted,
+            }
+          : step,
+      ),
+    );
+  };
+
+  const onDeleteStep = (stepId: string) => {
+    Alert.alert("短期目標を削除", "この短期目標を削除しますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除",
+        style: "destructive",
+        onPress: () => {
+          setShortTermGoals((prev) =>
+            prev.filter((step) => step.id !== stepId),
+          );
+        },
+      },
+    ]);
+  };
+
+  const onDeleteMilestone = (milestoneId: string) => {
+    Alert.alert("マイルストーンを削除", "このマイルストーンを削除しますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除",
+        style: "destructive",
+        onPress: () => {
+          deleteMilestone({
+            roadmapId: activeRoadmap.id,
+            milestoneId,
+          });
+        },
+      },
+    ]);
+  };
+
+  const clampAddButtonOffset = (
+    baseX: number,
+    baseY: number,
+    deltaX: number,
+    deltaY: number,
+    buttonSize: { width: number; height: number },
+  ) => {
+    const maxX = Math.max(0, roadmapWidth - buttonSize.width - baseX);
+    const maxY = Math.max(0, roadmapHeight - buttonSize.height - baseY);
+    return {
+      x: Math.max(-baseX, Math.min(maxX, deltaX)),
+      y: Math.max(-baseY, Math.min(maxY, deltaY)),
+    };
+  };
+
+  const updateAddButtonOffset = (
+    buttonId: string,
+    deltaX: number,
+    deltaY: number,
+    buttonSize: { width: number; height: number },
+    baseX: number,
+    baseY: number,
+  ) => {
+    const nextOffset = clampAddButtonOffset(
+      baseX,
+      baseY,
+      deltaX,
+      deltaY,
+      buttonSize,
+    );
+    setAddButtonOffsets((prev) => ({
+      ...prev,
+      [buttonId]: nextOffset,
+    }));
+  };
+
+  const resetAddButtonDrag = () => {
+    addButtonIsPanningRef.current = false;
+    addButtonDragArmedIdRef.current = null;
+    setDraggingAddButtonId(null);
+    addButtonDragTranslateX.setValue(0);
+    addButtonDragTranslateY.setValue(0);
+    requestAnimationFrame(() => {
+      addButtonDidDragRef.current = false;
+    });
+  };
+
   const onOpenAddStep = (segmentIndex: number, position: number) => {
     setAddTarget("step");
     setAddingStepPlacement({
-      segmentIndex: Math.max(0, segmentIndex),
+      segmentIndex:
+        segmentIndex === PRE_MILESTONE_SEGMENT
+          ? PRE_MILESTONE_SEGMENT
+          : Math.max(0, segmentIndex),
       position: Math.max(0.06, Math.min(0.94, position)),
     });
     setNewStepTitle("");
@@ -585,6 +781,7 @@ export default function CreateScreen() {
   const milestoneCount = renderMilestones.length;
   const segmentCount = Math.max(1, milestoneCount - 1);
   const milestoneGap = 840;
+  const milestoneCardClearance = 300;
 
   const getMilestoneTop = React.useCallback((orderIndex: number) => {
     return 256 + orderIndex * milestoneGap;
@@ -596,28 +793,37 @@ export default function CreateScreen() {
         const stepsInSegment = shortTermGoals.filter(
           (step) => step.segmentIndex === PRE_MILESTONE_SEGMENT,
         ).length;
-        const firstMilestoneTop = getMilestoneTop(0);
-        const desiredSpan = Math.max(300, stepsInSegment * 96 + 120);
-        const endTop = firstMilestoneTop - 180;
-        const startTop = Math.max(72, endTop - desiredSpan);
+        const stageOneTop =
+          milestoneCount > 0
+            ? getMilestoneTop(milestoneCount - 1)
+            : getMilestoneTop(0);
+        const startTop = stageOneTop + milestoneCardClearance;
+        const desiredSpan = Math.max(240, stepsInSegment * 96 + 120);
+        const endTop = startTop + desiredSpan;
         return {
           startTop,
           endTop,
-          span: Math.max(140, endTop - startTop),
+          span: Math.max(160, endTop - startTop),
         };
       }
 
-      const safeSegmentIndex = Math.max(0, Math.min(segmentCount - 1, segmentIndex));
+      const safeSegmentIndex = Math.max(
+        0,
+        Math.min(segmentCount - 1, segmentIndex),
+      );
       const stepsInSegment = shortTermGoals.filter(
         (step) => step.segmentIndex === safeSegmentIndex,
       ).length;
-      const startTop = getMilestoneTop(safeSegmentIndex) + 136;
+      const startTop =
+        getMilestoneTop(safeSegmentIndex) + milestoneCardClearance;
       const hasNextMilestone = safeSegmentIndex + 1 < milestoneCount;
       const nextMilestoneTop = hasNextMilestone
         ? getMilestoneTop(safeSegmentIndex + 1)
         : startTop + 620;
-      const desiredSpan = Math.max(560, stepsInSegment * 124 + 260);
-      const endTop = hasNextMilestone ? nextMilestoneTop - 136 : startTop + desiredSpan;
+      const desiredSpan = Math.max(220, stepsInSegment * 104 + 140);
+      const endTop = hasNextMilestone
+        ? nextMilestoneTop - milestoneCardClearance
+        : startTop + desiredSpan;
       const safeEndTop = Math.max(startTop + desiredSpan, endTop);
       return {
         startTop,
@@ -625,8 +831,156 @@ export default function CreateScreen() {
         span: safeEndTop - startTop,
       };
     },
-    [getMilestoneTop, milestoneCount, segmentCount, shortTermGoals],
+    [
+      getMilestoneTop,
+      milestoneCardClearance,
+      milestoneCount,
+      segmentCount,
+      shortTermGoals,
+    ],
   );
+
+  const getStepPlacementFromTop = React.useCallback(
+    (top: number) => {
+      const segmentIndices = [
+        PRE_MILESTONE_SEGMENT,
+        ...Array.from({ length: segmentCount }).map((_, index) => index),
+      ];
+
+      let closestSegment = PRE_MILESTONE_SEGMENT;
+      let closestDistance = Number.POSITIVE_INFINITY;
+      let closestBounds = getSegmentBounds(PRE_MILESTONE_SEGMENT);
+
+      for (const segmentIndex of segmentIndices) {
+        const bounds = getSegmentBounds(segmentIndex);
+        if (top >= bounds.startTop && top <= bounds.endTop) {
+          const directPosition =
+            1 - (top - bounds.startTop) / Math.max(1, bounds.span);
+          return {
+            segmentIndex,
+            position: Math.max(0.06, Math.min(0.94, directPosition)),
+          };
+        }
+
+        const distance =
+          top < bounds.startTop
+            ? bounds.startTop - top
+            : top > bounds.endTop
+              ? top - bounds.endTop
+              : 0;
+
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestSegment = segmentIndex;
+          closestBounds = bounds;
+        }
+      }
+
+      const clampedTop = Math.max(
+        closestBounds.startTop,
+        Math.min(closestBounds.endTop, top),
+      );
+      const nextPosition =
+        1 -
+        (clampedTop - closestBounds.startTop) / Math.max(1, closestBounds.span);
+      return {
+        segmentIndex: closestSegment,
+        position: Math.max(0.06, Math.min(0.94, nextPosition)),
+      };
+    },
+    [getSegmentBounds, segmentCount],
+  );
+
+  const moveShortTermGoalFreely = React.useCallback(
+    (stepId: string, droppedTop: number) => {
+      const placement = getStepPlacementFromTop(droppedTop);
+      setShortTermGoals((prev) =>
+        prev.map((step) =>
+          step.id === stepId
+            ? {
+                ...step,
+                segmentIndex: placement.segmentIndex,
+                position: placement.position,
+              }
+            : step,
+        ),
+      );
+    },
+    [getStepPlacementFromTop],
+  );
+
+  const onAutoAlignShortTermGoals = React.useCallback(() => {
+    let changedCount = 0;
+
+    setShortTermGoals((prev) => {
+      if (prev.length <= 1) {
+        changedCount = 0;
+        return prev;
+      }
+
+      const withResolvedSegment = prev.map((step) => {
+        const currentBounds = getSegmentBounds(step.segmentIndex);
+        const currentTop =
+          currentBounds.startTop + currentBounds.span * (1 - step.position);
+        const placement = getStepPlacementFromTop(currentTop);
+        return {
+          ...step,
+          segmentIndex: placement.segmentIndex,
+          __currentTop: currentTop,
+        };
+      });
+
+      const grouped = new Map<number, typeof withResolvedSegment>();
+      withResolvedSegment.forEach((step) => {
+        const steps = grouped.get(step.segmentIndex) ?? [];
+        steps.push(step);
+        grouped.set(step.segmentIndex, steps);
+      });
+
+      const alignedById = new Map<string, ShortTermGoal>();
+      grouped.forEach((steps, segmentIndex) => {
+        const sorted = [...steps].sort(
+          (left, right) => left.__currentTop - right.__currentTop,
+        );
+        const count = sorted.length;
+
+        sorted.forEach((step, index) => {
+          const alignedPosition = count <= 1 ? 0.5 : (index + 1) / (count + 1);
+          alignedById.set(step.id, {
+            id: step.id,
+            title: step.title,
+            subtitle: step.subtitle,
+            segmentIndex,
+            position: Math.max(0.08, Math.min(0.92, alignedPosition)),
+            isCompleted: step.isCompleted,
+          });
+        });
+      });
+
+      const aligned = prev.map((step) => alignedById.get(step.id) ?? step);
+      changedCount = prev.reduce((count, step, index) => {
+        const next = aligned[index];
+        if (!next) {
+          return count;
+        }
+
+        const movedSegment = step.segmentIndex !== next.segmentIndex;
+        const movedPosition = Math.abs(step.position - next.position) > 0.0001;
+        return movedSegment || movedPosition ? count + 1 : count;
+      }, 0);
+
+      return aligned;
+    });
+
+    requestAnimationFrame(() => {
+      Alert.alert(
+        "自動整頓",
+        changedCount > 0
+          ? `${changedCount}件の短期目標を整頓しました。`
+          : "並びはすでに整っています。",
+      );
+    });
+  }, [getSegmentBounds, getStepPlacementFromTop]);
 
   React.useEffect(() => {
     setShortTermGoals((prev) =>
@@ -635,7 +989,13 @@ export default function CreateScreen() {
         segmentIndex:
           step.segmentIndex === PRE_MILESTONE_SEGMENT
             ? PRE_MILESTONE_SEGMENT
-            : Math.max(0, Math.min(segmentCount - 1, step.segmentIndex ?? index % segmentCount)),
+            : Math.max(
+                0,
+                Math.min(
+                  segmentCount - 1,
+                  step.segmentIndex ?? index % segmentCount,
+                ),
+              ),
         position: Math.max(0.06, Math.min(0.94, step.position ?? 0.5)),
       })),
     );
@@ -643,12 +1003,14 @@ export default function CreateScreen() {
 
   React.useEffect(() => {
     if (activeRoadmap.mode === "ai-auto") {
-      const generated = normalizeStepsInSegments(buildShortTermGoalsFromRoadmap());
+      const generated = normalizeStepsInSegments(
+        buildShortTermGoalsFromRoadmap(),
+      );
       setShortTermGoals(generated);
       return;
     }
 
-    if (activeRoadmap.mode === "manual-level" && shortTermGoals.length === 0) {
+    if (activeRoadmap.mode === "manual-level") {
       setShortTermGoals([]);
     }
   }, [
@@ -658,9 +1020,18 @@ export default function CreateScreen() {
     normalizeStepsInSegments,
   ]);
 
+  React.useEffect(() => {
+    setAddButtonOffsets({});
+    resetAddButtonDrag();
+  }, [activeRoadmap.id]);
+
   const pathItems = buildPathItems();
   const lastMilestoneTop = getMilestoneTop(Math.max(0, milestoneCount - 1));
-  const roadmapHeight = Math.max(1720, lastMilestoneTop + 1240);
+  const preSegmentBounds = getSegmentBounds(PRE_MILESTONE_SEGMENT);
+  const roadmapHeight = Math.max(
+    980,
+    Math.max(lastMilestoneTop + 520, preSegmentBounds.endTop + 180),
+  );
   const roadStartY = 140;
 
   const cubicValue = (
@@ -842,6 +1213,27 @@ export default function CreateScreen() {
     setShowCompletion(false);
   };
 
+  const onArchiveCurrentRoadmap = () => {
+    Alert.alert(
+      "この目標を削除",
+      "この目標は履歴に保存され、一覧からは非表示になります。",
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除して最初に戻る",
+          style: "destructive",
+          onPress: () => {
+            archiveRoadmap({
+              roadmapId: activeRoadmap.id,
+              reason: "create-screen-delete",
+            });
+            onResetToIntro();
+          },
+        },
+      ],
+    );
+  };
+
   React.useEffect(() => {
     if (
       activeRoadmap.milestoneTemplates.length > 0 &&
@@ -860,13 +1252,115 @@ export default function CreateScreen() {
     Alert.alert("マイルストーン達成", "通常投稿が1回解放されました。");
   };
 
+  const onCompleteMilestone = React.useCallback(
+    (milestoneId: string) => {
+      const target = milestones.find(
+        (milestone) => milestone.id === milestoneId,
+      );
+      if (!target) {
+        Alert.alert(
+          "対象が見つかりません",
+          "マイルストーンを再読み込みしてください。",
+        );
+        return;
+      }
+
+      if (target.status === "completed") {
+        Alert.alert("達成済み", "この中期目標はすでに達成済みです。");
+        return;
+      }
+
+      if (target.status === "locked") {
+        Alert.alert("未解放", "先に現在の中期目標を達成してください。");
+        return;
+      }
+
+      clearCurrentMilestone();
+      Alert.alert("マイルストーン達成", "通常投稿が1回解放されました。");
+    },
+    [clearCurrentMilestone, milestones],
+  );
+
   React.useEffect(() => {
     registerScrollToTop("create", () => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      });
     });
 
     return () => registerScrollToTop("create", null);
   }, [registerScrollToTop]);
+
+  const renderWizardOptions = () => {
+    if (currentWizardQuestion.kind !== "choice") {
+      return null;
+    }
+
+    return (
+      <View style={styles.wizardOptionsBlock}>
+        <View style={styles.wizardOptionsWrap}>
+          {currentWizardQuestion.options.map((option) => {
+            const selected = currentWizardQuestion.value === option;
+            return (
+              <Pressable
+                key={option}
+                style={[
+                  styles.wizardOptionChip,
+                  selected && styles.wizardOptionChipSelected,
+                ]}
+                onPress={() => {
+                  currentWizardQuestion.setter(option);
+                  if (option !== "その他") {
+                    currentWizardQuestion.otherSetter("");
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    styles.wizardOptionText,
+                    selected && styles.wizardOptionTextSelected,
+                  ]}
+                >
+                  {option}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {currentWizardQuestion.value === "その他" ? (
+          <InputField
+            value={currentWizardQuestion.otherValue}
+            onChangeText={currentWizardQuestion.otherSetter}
+            placeholder="内容を入力してください"
+            style={styles.wizardInput}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
+  const onPickDeadlineDate = (
+    event: { type?: string },
+    selectedDate?: Date,
+  ) => {
+    if (Platform.OS !== "ios") {
+      setShowDeadlinePicker(false);
+    }
+
+    if (event.type === "dismissed" || !selectedDate) {
+      return;
+    }
+
+    setDeadlineDate(selectedDate);
+    setDeadlineInput(formatDeadlineDate(selectedDate));
+  };
+
+  React.useEffect(() => {
+    if (flowStep !== "roadmap") {
+      return;
+    }
+    initialRoadmapScrollDoneRef.current = null;
+  }, [activeRoadmap.id, flowStep]);
 
   React.useEffect(() => {
     const showEvent =
@@ -948,15 +1442,35 @@ export default function CreateScreen() {
           <View style={styles.wizardCard}>
             <Text style={styles.wizardTitle}>AIに送る質問</Text>
             <Text style={styles.wizardLabel}>
-              {wizardQuestions[wizardStep].title}
+              {currentWizardQuestion.title}
             </Text>
-            <InputField
-              value={wizardQuestions[wizardStep].value}
-              onChangeText={wizardQuestions[wizardStep].setter}
-              placeholder={wizardQuestions[wizardStep].placeholder}
-              style={styles.wizardInput}
-              multiline={wizardStep === 4}
-            />
+            {currentWizardQuestion.kind === "date" ? (
+              <Pressable
+                style={styles.wizardDateButton}
+                onPress={() => setShowDeadlinePicker(true)}
+              >
+                <Text
+                  style={[
+                    styles.wizardDateText,
+                    !currentWizardQuestion.value &&
+                      styles.wizardDatePlaceholder,
+                  ]}
+                >
+                  {currentWizardQuestion.value || "カレンダーから日付を選択"}
+                </Text>
+                <Ionicons name="calendar-outline" size={16} color="#FF5F00" />
+              </Pressable>
+            ) : currentWizardQuestion.kind === "choice" ? (
+              renderWizardOptions()
+            ) : (
+              <InputField
+                value={currentWizardQuestion.value}
+                onChangeText={currentWizardQuestion.setter}
+                placeholder={currentWizardQuestion.placeholder}
+                style={styles.wizardInput}
+                multiline={wizardStep === 4}
+              />
+            )}
             <View style={styles.wizardFooter}>
               <Pressable
                 onPress={onBackWizard}
@@ -977,6 +1491,24 @@ export default function CreateScreen() {
             <Text
               style={styles.smallHint}
             >{`ステップ ${wizardStep + 1} / ${wizardQuestions.length}`}</Text>
+            {currentWizardQuestion.kind === "date" && showDeadlinePicker ? (
+              <View style={styles.wizardDatePickerWrap}>
+                <DateTimePicker
+                  value={deadlineDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={onPickDeadlineDate}
+                  accentColor="#FF5F00"
+                  themeVariant="light"
+                />
+                <Pressable
+                  style={styles.wizardDateCloseButton}
+                  onPress={() => setShowDeadlinePicker(false)}
+                >
+                  <Text style={styles.wizardDateCloseButtonText}>閉じる</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </ScrollView>
       ) : (
@@ -996,19 +1528,9 @@ export default function CreateScreen() {
             <View style={styles.topRightActions}>
               <Pressable
                 style={styles.avatarButton}
-                onPress={() => router.push("/notifications")}
+                onPress={onAutoAlignShortTermGoals}
               >
-                <Ionicons name="person-outline" size={20} color="#1E293B" />
-                {notifications.length > 0 ? (
-                  <View style={styles.notificationBadge}>
-                    <Text
-                      style={styles.notificationBadgeText}
-                      numberOfLines={1}
-                    >
-                      {notifications.length}
-                    </Text>
-                  </View>
-                ) : null}
+                <Ionicons name="grid-outline" size={20} color="#FF5F00" />
               </Pressable>
             </View>
           </View>
@@ -1091,23 +1613,54 @@ export default function CreateScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             scrollEnabled={!(draggingMilestoneId || draggingStepId)}
+            onContentSizeChange={() => {
+              if (flowStep !== "roadmap") {
+                return;
+              }
+              if (initialRoadmapScrollDoneRef.current === activeRoadmap.id) {
+                return;
+              }
+              initialRoadmapScrollDoneRef.current = activeRoadmap.id;
+              requestAnimationFrame(() => {
+                scrollViewRef.current?.scrollToEnd({ animated: false });
+              });
+            }}
           >
             <View style={styles.goalHeroCard}>
               <Text style={styles.goalHeroLabel}>
-                {activeRoadmap.mode === "manual-level" ? "MANUAL GOAL" : "AI GOAL"}
+                {activeRoadmap.mode === "manual-level"
+                  ? "MANUAL GOAL"
+                  : "AI GOAL"}
               </Text>
-              {activeRoadmap.mode === "manual-level" ? (
-                <InputField
-                  value={activeRoadmap.goal === "未設定" ? "" : activeRoadmap.goal}
-                  onChangeText={(text) =>
-                    updateRoadmapGoal({ roadmapId: activeRoadmap.id, goal: text })
-                  }
-                  placeholder="例: Webアプリを完成させる"
-                  style={styles.goalHeroInput}
-                />
-              ) : (
-                <Text style={styles.goalHeroTitle}>{activeRoadmap.goal}</Text>
-              )}
+              <View style={styles.goalHeroTitleRow}>
+                {activeRoadmap.mode === "manual-level" ? (
+                  <InputField
+                    value={
+                      activeRoadmap.goal === "未設定" ? "" : activeRoadmap.goal
+                    }
+                    onChangeText={(text) =>
+                      updateRoadmapGoal({
+                        roadmapId: activeRoadmap.id,
+                        goal: text,
+                      })
+                    }
+                    placeholder="例: Webアプリを完成させる"
+                    style={[styles.goalHeroInput, styles.goalHeroInputFlex]}
+                  />
+                ) : (
+                  <Text
+                    style={[styles.goalHeroTitle, styles.goalHeroTitleFlex]}
+                  >
+                    {activeRoadmap.goal}
+                  </Text>
+                )}
+                <Pressable
+                  style={styles.goalDeleteButton}
+                  onPress={onArchiveCurrentRoadmap}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#FF5F00" />
+                </Pressable>
+              </View>
             </View>
             <View
               style={[styles.roadmapWrap, { height: roadmapHeight }]}
@@ -1175,572 +1728,632 @@ export default function CreateScreen() {
                     道は見えています。ここから短期目標とマイルストーンを追加していきましょう。
                   </Text>
                 </View>
-              ) : (
-                (() => {
-                  let milestoneCounter = 0;
-                  const milestoneCardOffsets = [96, 20, 116];
-                  return pathItems.map((item, index) => {
-                    let top = 176 + index * 254;
-                    if (item.type === "milestone") {
-                      const milestoneIndex = renderMilestones.findIndex(
-                        (milestone) => milestone.id === item.milestone.id,
+              ) : null}
+              {(() => {
+                let milestoneCounter = 0;
+                const milestoneCardOffsets = [96, 20, 116];
+                return pathItems.map((item, index) => {
+                  let top = 176 + index * 254;
+                  if (item.type === "milestone") {
+                    const milestoneIndex = renderMilestones.findIndex(
+                      (milestone) => milestone.id === item.milestone.id,
+                    );
+                    top = getMilestoneTop(Math.max(0, milestoneIndex));
+                  } else if (item.type === "step") {
+                    const bounds = getSegmentBounds(item.step.segmentIndex);
+                    top =
+                      bounds.startTop + bounds.span * (1 - item.step.position);
+                  } else if (item.type === "gap") {
+                    const bounds = getSegmentBounds(item.gapIndex);
+                    top = bounds.startTop + bounds.span * 0.5;
+                  }
+                  const curveX = getPathXForTop(top);
+                  const left =
+                    item.type === "milestone"
+                      ? milestoneCardOffsets[milestoneCounter % 3]
+                      : item.type === "step"
+                        ? Math.max(18, Math.min(252, curveX - 44))
+                        : Math.max(14, Math.min(252, curveX - 80));
+
+                  if (item.type === "milestone") {
+                    const milestone = item.milestone;
+                    const milestoneStageNumber =
+                      activeRoadmap.milestoneTemplates.length -
+                      milestoneCounter;
+                    const isCurrent = milestone.status === "current";
+                    const isCompleted = milestone.status === "completed";
+                    const milestoneIndex =
+                      activeRoadmap.milestoneTemplates.findIndex(
+                        (template) => template.id === milestone.id,
                       );
-                      top = getMilestoneTop(Math.max(0, milestoneIndex));
-                    } else if (item.type === "step") {
-                      const bounds = getSegmentBounds(item.step.segmentIndex);
-                      top = bounds.startTop + bounds.span * item.step.position;
-                    } else if (item.type === "gap") {
-                      const bounds = getSegmentBounds(item.gapIndex);
-                      top = bounds.startTop + bounds.span * 0.5;
-                    }
-                    const curveX = getPathXForTop(top);
-                    const left =
-                      item.type === "milestone"
-                        ? milestoneCardOffsets[milestoneCounter % 3]
-                        : item.type === "step"
-                          ? Math.max(18, Math.min(252, curveX - 44))
-                          : Math.max(14, Math.min(252, curveX - 18));
+                    const canEditMilestone = milestoneIndex >= 0;
 
-                    if (item.type === "milestone") {
-                      const milestone = item.milestone;
-                      const milestoneStageNumber =
-                        activeRoadmap.milestoneTemplates.length -
-                        milestoneCounter +
-                        1;
-                      const isCurrent = milestone.status === "current";
-                      const isCompleted = milestone.status === "completed";
-                      const milestoneIndex =
-                        activeRoadmap.milestoneTemplates.findIndex(
-                          (template) => template.id === milestone.id,
+                    const milestoneResponder = PanResponder.create({
+                      onStartShouldSetPanResponder: () => false,
+                      onMoveShouldSetPanResponder: (_, gestureState) =>
+                        milestoneDragArmedIdRef.current === milestone.id &&
+                        Math.abs(gestureState.dy) > 4,
+                      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+                        milestoneDragArmedIdRef.current === milestone.id &&
+                        Math.abs(gestureState.dy) > 4,
+                      onPanResponderGrant: () => {
+                        if (milestoneDragArmedIdRef.current === milestone.id) {
+                          milestoneIsPanningRef.current = true;
+                          setDraggingMilestoneId(milestone.id);
+                          milestoneDragTranslateY.setValue(0);
+                        }
+                      },
+                      onPanResponderMove: (_, gestureState) => {
+                        if (milestoneDragArmedIdRef.current === milestone.id) {
+                          milestoneDragTranslateY.setValue(gestureState.dy);
+                        }
+                      },
+                      onPanResponderRelease: (_, gestureState) => {
+                        milestoneIsPanningRef.current = false;
+                        const shift = Math.round(gestureState.dy / 210);
+                        const targetIndex = Math.max(
+                          0,
+                          Math.min(
+                            activeRoadmap.milestoneTemplates.length - 1,
+                            milestoneIndex + shift,
+                          ),
                         );
-                      const canMoveMilestoneUp = milestoneIndex > 0;
-                      const canMoveMilestoneDown =
-                        milestoneIndex >= 0 &&
-                        milestoneIndex <
-                          activeRoadmap.milestoneTemplates.length - 1;
 
-                      const milestoneResponder = PanResponder.create({
-                        onStartShouldSetPanResponder: () => false,
-                        onMoveShouldSetPanResponder: (_, gestureState) =>
-                          milestoneDragArmedIdRef.current === milestone.id &&
-                          Math.abs(gestureState.dy) > 4,
-                        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-                          milestoneDragArmedIdRef.current === milestone.id &&
-                          Math.abs(gestureState.dy) > 4,
-                        onPanResponderGrant: () => {
-                          if (
-                            milestoneDragArmedIdRef.current === milestone.id
-                          ) {
-                            milestoneIsPanningRef.current = true;
-                            setDraggingMilestoneId(milestone.id);
-                            milestoneDragTranslateY.setValue(0);
-                          }
-                        },
-                        onPanResponderMove: (_, gestureState) => {
-                          if (
-                            milestoneDragArmedIdRef.current === milestone.id
-                          ) {
-                            milestoneDragTranslateY.setValue(gestureState.dy);
-                          }
-                        },
-                        onPanResponderRelease: (_, gestureState) => {
-                          milestoneIsPanningRef.current = false;
-                          const shift = Math.round(gestureState.dy / 210);
-                          const targetIndex = Math.max(
-                            0,
-                            Math.min(
-                              activeRoadmap.milestoneTemplates.length - 1,
-                              milestoneIndex + shift,
-                            ),
+                        if (shift !== 0 && targetIndex !== milestoneIndex) {
+                          const direction =
+                            targetIndex > milestoneIndex ? "down" : "up";
+                          const moveCount = Math.abs(
+                            targetIndex - milestoneIndex,
                           );
 
-                          if (shift !== 0 && targetIndex !== milestoneIndex) {
-                            const direction =
-                              targetIndex > milestoneIndex ? "down" : "up";
-                            const moveCount = Math.abs(
-                              targetIndex - milestoneIndex,
-                            );
-
-                            for (
-                              let moveIndex = 0;
-                              moveIndex < moveCount;
-                              moveIndex += 1
-                            ) {
-                              moveMilestone({
-                                roadmapId: activeRoadmap.id,
-                                milestoneId: milestone.id,
-                                direction,
-                              });
-                            }
+                          for (
+                            let moveIndex = 0;
+                            moveIndex < moveCount;
+                            moveIndex += 1
+                          ) {
+                            moveMilestone({
+                              roadmapId: activeRoadmap.id,
+                              milestoneId: milestone.id,
+                              direction,
+                            });
                           }
+                        }
 
-                          Animated.spring(milestoneDragTranslateY, {
-                            toValue: 0,
-                            useNativeDriver: true,
-                            speed: 18,
-                            bounciness: 6,
-                          }).start(() => {
-                            setDraggingMilestoneId((current) =>
-                              current === milestone.id ? null : current,
-                            );
-                            if (
-                              milestoneDragArmedIdRef.current === milestone.id
-                            ) {
-                              milestoneDragArmedIdRef.current = null;
-                            }
-                          });
-                        },
-                        onPanResponderTerminate: () => {
-                          milestoneIsPanningRef.current = false;
-                          Animated.timing(milestoneDragTranslateY, {
-                            toValue: 0,
-                            duration: 150,
-                            useNativeDriver: true,
-                          }).start(() => {
-                            setDraggingMilestoneId((current) =>
-                              current === milestone.id ? null : current,
-                            );
-                            if (
-                              milestoneDragArmedIdRef.current === milestone.id
-                            ) {
-                              milestoneDragArmedIdRef.current = null;
-                            }
-                          });
-                        },
-                        onPanResponderTerminationRequest: () => false,
-                        onShouldBlockNativeResponder: () => true,
-                      });
-                      milestoneCounter += 1;
+                        Animated.spring(milestoneDragTranslateY, {
+                          toValue: 0,
+                          useNativeDriver: true,
+                          speed: 18,
+                          bounciness: 6,
+                        }).start(() => {
+                          setDraggingMilestoneId((current) =>
+                            current === milestone.id ? null : current,
+                          );
+                          if (
+                            milestoneDragArmedIdRef.current === milestone.id
+                          ) {
+                            milestoneDragArmedIdRef.current = null;
+                          }
+                        });
+                      },
+                      onPanResponderTerminate: () => {
+                        milestoneIsPanningRef.current = false;
+                        Animated.timing(milestoneDragTranslateY, {
+                          toValue: 0,
+                          duration: 150,
+                          useNativeDriver: true,
+                        }).start(() => {
+                          setDraggingMilestoneId((current) =>
+                            current === milestone.id ? null : current,
+                          );
+                          if (
+                            milestoneDragArmedIdRef.current === milestone.id
+                          ) {
+                            milestoneDragArmedIdRef.current = null;
+                          }
+                        });
+                      },
+                      onPanResponderTerminationRequest: () => false,
+                      onShouldBlockNativeResponder: () => true,
+                    });
+                    milestoneCounter += 1;
 
-                      return (
-                        <Animated.View
-                          key={milestone.id}
-                          style={[
-                            styles.stageCard,
-                            { top, left },
-                            draggingMilestoneId === milestone.id
-                              ? {
-                                  transform: [
-                                    { translateY: milestoneDragTranslateY },
-                                    { scale: 1.03 },
-                                  ],
-                                  zIndex: 9,
-                                }
-                              : null,
-                            draggingMilestoneId === milestone.id
-                              ? styles.stageCardDragging
-                              : null,
-                            milestoneCounter % 2 === 0
-                              ? styles.stageCardAccentLeft
-                              : undefined,
-                          ]}
-                        >
-                          <Pressable
-                            style={styles.stagePressable}
-                            {...milestoneResponder.panHandlers}
-                            onPress={() => {
-                              if (
-                                milestoneDragArmedIdRef.current === milestone.id
-                              ) {
-                                return;
+                    return (
+                      <Animated.View
+                        key={milestone.id}
+                        style={[
+                          styles.stageCard,
+                          { top, left },
+                          draggingMilestoneId === milestone.id
+                            ? {
+                                transform: [
+                                  { translateY: milestoneDragTranslateY },
+                                  { scale: 1.03 },
+                                ],
+                                zIndex: 9,
                               }
-                              router.push({
-                                pathname: "/goal-description",
-                                params: {
-                                  goalType: "milestone",
-                                  goalId: milestone.id,
-                                  title: milestone.title,
-                                  subtitle: milestone.subtitle,
-                                },
-                              });
-                            }}
-                            onPressIn={() => {
+                            : null,
+                          draggingMilestoneId === milestone.id
+                            ? styles.stageCardDragging
+                            : null,
+                          milestoneCounter % 2 === 0
+                            ? styles.stageCardAccentLeft
+                            : undefined,
+                        ]}
+                      >
+                        <Pressable
+                          style={styles.stagePressable}
+                          {...milestoneResponder.panHandlers}
+                          onPress={() => {
+                            if (
+                              milestoneDragArmedIdRef.current === milestone.id
+                            ) {
+                              return;
+                            }
+                            router.push({
+                              pathname: "/goal-description",
+                              params: {
+                                goalType: "milestone",
+                                goalId: milestone.id,
+                                title: milestone.title,
+                                subtitle: milestone.subtitle,
+                              },
+                            });
+                          }}
+                          onPressIn={() => {
+                            if (milestoneIsPanningRef.current) {
+                              return;
+                            }
+                          }}
+                          delayLongPress={180}
+                          onLongPress={() => {
+                            milestoneDragArmedIdRef.current = milestone.id;
+                            setDraggingMilestoneId(milestone.id);
+                            milestoneDragTranslateY.setValue(0);
+                          }}
+                          onPressOut={() => {
+                            requestAnimationFrame(() => {
                               if (milestoneIsPanningRef.current) {
                                 return;
                               }
-                            }}
-                            delayLongPress={180}
-                            onLongPress={() => {
-                              milestoneDragArmedIdRef.current = milestone.id;
-                              setDraggingMilestoneId(milestone.id);
+                              if (
+                                milestoneDragArmedIdRef.current === milestone.id
+                              ) {
+                                milestoneDragArmedIdRef.current = null;
+                              }
+                              setDraggingMilestoneId((current) =>
+                                current === milestone.id ? null : current,
+                              );
                               milestoneDragTranslateY.setValue(0);
-                            }}
-                            onPressOut={() => {
-                              requestAnimationFrame(() => {
-                                if (milestoneIsPanningRef.current) {
-                                  return;
+                            });
+                          }}
+                        >
+                          <View style={styles.stageBadgeRow}>
+                            <View style={styles.stageBadgeIconWrap}>
+                              <Ionicons
+                                name={
+                                  isCompleted
+                                    ? "trophy-outline"
+                                    : "flag-outline"
                                 }
-                                if (
-                                  milestoneDragArmedIdRef.current ===
-                                  milestone.id
-                                ) {
-                                  milestoneDragArmedIdRef.current = null;
+                                size={14}
+                                color="#FF5F00"
+                              />
+                            </View>
+                            <Text
+                              style={styles.stageBadgeText}
+                            >{`STAGE ${String(milestoneStageNumber).padStart(
+                              2,
+                              "0",
+                            )}`}</Text>
+                            <View style={styles.stageBadgeActions}>
+                              <Pressable
+                                style={[
+                                  styles.stageCompleteButton,
+                                  milestone.status !== "current" &&
+                                    styles.stageCompleteButtonDisabled,
+                                ]}
+                                disabled={milestone.status !== "current"}
+                                onPress={() =>
+                                  onCompleteMilestone(milestone.id)
                                 }
-                                setDraggingMilestoneId((current) =>
-                                  current === milestone.id ? null : current,
-                                );
-                                milestoneDragTranslateY.setValue(0);
-                              });
-                            }}
-                          >
-                            <View style={styles.stageBadgeRow}>
-                              <View style={styles.stageBadgeIconWrap}>
+                              >
                                 <Ionicons
                                   name={
-                                    isCompleted
-                                      ? "trophy-outline"
-                                      : "flag-outline"
+                                    milestone.status === "completed"
+                                      ? "checkmark-circle"
+                                      : "checkmark-done"
                                   }
                                   size={14}
+                                  color="#FFFFFF"
+                                />
+                                <Text style={styles.stageCompleteButtonText}>
+                                  達成
+                                </Text>
+                              </Pressable>
+                              <Pressable
+                                style={[
+                                  styles.stageOrderButton,
+                                  !canEditMilestone &&
+                                    styles.orderButtonDisabled,
+                                ]}
+                                disabled={!canEditMilestone}
+                                onPress={() =>
+                                  onOpenEdit(
+                                    milestone.id,
+                                    milestone.title,
+                                    milestone.subtitle,
+                                  )
+                                }
+                              >
+                                <Ionicons
+                                  name="pencil"
+                                  size={12}
                                   color="#FF5F00"
                                 />
-                              </View>
-                              <Text
-                                style={styles.stageBadgeText}
-                              >{`STAGE ${String(milestoneStageNumber).padStart(
-                                2,
-                                "0",
-                              )}`}</Text>
-                              <View style={styles.stageBadgeActions}>
+                              </Pressable>
+                              <Pressable
+                                style={styles.stageOrderButton}
+                                onPress={() => onDeleteMilestone(milestone.id)}
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={12}
+                                  color="#E35300"
+                                />
+                              </Pressable>
+                            </View>
+                          </View>
+                          {inlineMilestoneEditId === milestone.id ? (
+                            <View style={styles.inlineMilestoneEditor}>
+                              <TextInput
+                                value={inlineMilestoneTitle}
+                                onChangeText={setInlineMilestoneTitle}
+                                placeholder="長期目標名"
+                                style={styles.inlineMilestoneTitleInput}
+                              />
+                              <TextInput
+                                value={inlineMilestoneSubtitle}
+                                onChangeText={setInlineMilestoneSubtitle}
+                                placeholder="補足説明"
+                                style={styles.inlineMilestoneSubtitleInput}
+                                multiline
+                              />
+                              <View style={styles.inlineEditActionRow}>
                                 <Pressable
-                                  style={[
-                                    styles.stageOrderButton,
-                                    !canMoveMilestoneUp &&
-                                      styles.orderButtonDisabled,
-                                  ]}
-                                  disabled={!canMoveMilestoneUp}
-                                  onPress={() =>
-                                    onOpenEdit(
-                                      milestone.id,
-                                      milestone.title,
-                                      milestone.subtitle,
-                                    )
-                                  }
+                                  style={styles.inlineActionButton}
+                                  onPress={onCancelInlineMilestone}
                                 >
                                   <Ionicons
-                                    name="pencil"
-                                    size={12}
+                                    name="close"
+                                    size={14}
                                     color="#FF5F00"
                                   />
                                 </Pressable>
                                 <Pressable
-                                  style={[
-                                    styles.stageOrderButton,
-                                    !canMoveMilestoneUp &&
-                                      styles.orderButtonDisabled,
-                                  ]}
-                                  disabled={!canMoveMilestoneUp}
+                                  style={styles.inlineActionButton}
                                   onPress={() =>
-                                    moveMilestone({
-                                      roadmapId: activeRoadmap.id,
-                                      milestoneId: milestone.id,
-                                      direction: "up",
-                                    })
+                                    onSaveInlineMilestone(milestone.id)
                                   }
                                 >
                                   <Ionicons
-                                    name="chevron-up"
-                                    size={12}
-                                    color={
-                                      canMoveMilestoneUp
-                                        ? "#FF5F00"
-                                        : "rgba(255,95,0,0.35)"
-                                    }
-                                  />
-                                </Pressable>
-                                <Pressable
-                                  style={[
-                                    styles.stageOrderButton,
-                                    !canMoveMilestoneDown &&
-                                      styles.orderButtonDisabled,
-                                  ]}
-                                  disabled={!canMoveMilestoneDown}
-                                  onPress={() =>
-                                    moveMilestone({
-                                      roadmapId: activeRoadmap.id,
-                                      milestoneId: milestone.id,
-                                      direction: "down",
-                                    })
-                                  }
-                                >
-                                  <Ionicons
-                                    name="chevron-down"
-                                    size={12}
-                                    color={
-                                      canMoveMilestoneDown
-                                        ? "#FF5F00"
-                                        : "rgba(255,95,0,0.35)"
-                                    }
+                                    name="checkmark"
+                                    size={14}
+                                    color="#FF5F00"
                                   />
                                 </Pressable>
                               </View>
                             </View>
-                            {inlineMilestoneEditId === milestone.id ? (
-                              <View style={styles.inlineMilestoneEditor}>
-                                <TextInput
-                                  value={inlineMilestoneTitle}
-                                  onChangeText={setInlineMilestoneTitle}
-                                  placeholder="長期目標名"
-                                  style={styles.inlineMilestoneTitleInput}
-                                />
-                                <TextInput
-                                  value={inlineMilestoneSubtitle}
-                                  onChangeText={setInlineMilestoneSubtitle}
-                                  placeholder="補足説明"
-                                  style={styles.inlineMilestoneSubtitleInput}
-                                  multiline
-                                />
-                                <View style={styles.inlineEditActionRow}>
-                                  <Pressable
-                                    style={styles.inlineActionButton}
-                                    onPress={onCancelInlineMilestone}
-                                  >
-                                    <Ionicons
-                                      name="close"
-                                      size={14}
-                                      color="#FF5F00"
-                                    />
-                                  </Pressable>
-                                  <Pressable
-                                    style={styles.inlineActionButton}
-                                    onPress={() =>
-                                      onSaveInlineMilestone(milestone.id)
-                                    }
-                                  >
-                                    <Ionicons
-                                      name="checkmark"
-                                      size={14}
-                                      color="#FF5F00"
-                                    />
-                                  </Pressable>
-                                </View>
-                              </View>
-                            ) : (
-                              <>
+                          ) : (
+                            <>
+                              <View style={styles.stageTitleWrap}>
                                 <Text
                                   style={[
                                     styles.stageTitle,
                                     isCurrent && styles.currentTitle,
                                   ]}
-                                  numberOfLines={1}
+                                  numberOfLines={2}
+                                  adjustsFontSizeToFit
                                 >
                                   {milestone.title}
                                 </Text>
-                                <Text style={styles.stageSubtitle}>
-                                  {milestone.subtitle}
-                                </Text>
-                              </>
-                            )}
-                            <View style={styles.stageFooterRow}>
-                              <Text style={styles.stageFooterKey}>
-                                EFFICIENCY
+                              </View>
+                              <Text style={styles.stageSubtitle}>
+                                {milestone.subtitle}
                               </Text>
-                              <Text
-                                style={styles.stageFooterValue}
-                              >{`${Math.min(
-                                98,
-                                58 + milestoneCounter * 11,
-                              )}%`}</Text>
-                            </View>
-                          </Pressable>
-                        </Animated.View>
-                      );
-                    }
+                            </>
+                          )}
+                        </Pressable>
+                      </Animated.View>
+                    );
+                  }
 
-                    if (item.type === "step") {
-                      const segmentBounds = getSegmentBounds(item.step.segmentIndex);
-                      const dotMinX = 12;
-                      const dotMaxX = Math.max(dotMinX, roadmapWidth - 26);
-                      const dotLeft = Math.max(
-                        dotMinX,
-                        Math.min(dotMaxX, curveX),
-                      );
-                      const stepAnchorLeft = dotLeft - 9;
-                      const sideMargin = 16;
-                      const iconSlot = 0;
-                      const rightSpace = roadmapWidth - dotLeft - sideMargin - iconSlot;
-                      const leftSpace = dotLeft - sideMargin - iconSlot;
-                      const estimatedLabelWidth = Math.max(
-                        132,
-                        Math.min(320, Math.round(item.step.title.length * 12 + 30)),
-                      );
-                      const canPlaceRight = rightSpace >= estimatedLabelWidth;
-                      const canPlaceLeft = leftSpace >= estimatedLabelWidth;
-                      const placeLabelRight = canPlaceRight
-                        ? !canPlaceLeft || rightSpace >= leftSpace
-                        : !canPlaceLeft;
-                      const activeSpace = placeLabelRight ? rightSpace : leftSpace;
-                      const labelWidth = Math.max(
-                        132,
-                        Math.min(estimatedLabelWidth, Math.floor(activeSpace)),
-                      );
+                  if (item.type === "step") {
+                    const segmentBounds = getSegmentBounds(
+                      item.step.segmentIndex,
+                    );
+                    const dotMinX = 12;
+                    const dotMaxX = Math.max(dotMinX, roadmapWidth - 26);
+                    const dotLeft = Math.max(
+                      dotMinX,
+                      Math.min(dotMaxX, curveX),
+                    );
+                    const stepAnchorLeft = dotLeft - 9;
+                    const screenWidth = Dimensions.get("window").width;
+                    const edgePadding = 20;
+                    const panelMaxWidth = Math.min(
+                      160,
+                      Math.floor(screenWidth * 0.5),
+                      Math.floor(roadmapWidth - edgePadding * 2),
+                    );
+                    const placeLabelRight = dotLeft <= roadmapWidth / 2;
+                    const preferredLeft = placeLabelRight
+                      ? dotLeft + 26
+                      : dotLeft - 26 - panelMaxWidth;
+                    const boundedLeft = Math.max(
+                      edgePadding,
+                      Math.min(
+                        roadmapWidth - edgePadding - panelMaxWidth,
+                        preferredLeft,
+                      ),
+                    );
+                    const panelOffsetLeft = boundedLeft - stepAnchorLeft;
 
-                      const stepResponder = PanResponder.create({
-                        onStartShouldSetPanResponder: () => false,
-                        onMoveShouldSetPanResponder: (_, gestureState) =>
-                          stepDragArmedIdRef.current === item.step.id &&
-                          Math.abs(gestureState.dy) > 4,
-                        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-                          stepDragArmedIdRef.current === item.step.id &&
-                          Math.abs(gestureState.dy) > 4,
-                        onPanResponderGrant: () => {
+                    const stepResponder = PanResponder.create({
+                      onStartShouldSetPanResponder: () => false,
+                      onMoveShouldSetPanResponder: (_, gestureState) =>
+                        stepDragArmedIdRef.current === item.step.id &&
+                        Math.abs(gestureState.dy) > 4,
+                      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+                        stepDragArmedIdRef.current === item.step.id &&
+                        Math.abs(gestureState.dy) > 4,
+                      onPanResponderGrant: () => {
+                        if (stepDragArmedIdRef.current === item.step.id) {
+                          stepIsPanningRef.current = true;
+                          setDraggingStepId(item.step.id);
+                          stepDragTranslateX.setValue(0);
+                          stepDragTranslateY.setValue(0);
+                        }
+                      },
+                      onPanResponderMove: (_, gestureState) => {
+                        if (stepDragArmedIdRef.current === item.step.id) {
+                          const upperBounds = getSegmentBounds(0);
+                          const lowerBounds = getSegmentBounds(
+                            PRE_MILESTONE_SEGMENT,
+                          );
+                          const nextTop = Math.max(
+                            upperBounds.startTop,
+                            Math.min(lowerBounds.endTop, top + gestureState.dy),
+                          );
+                          const nextCurveX = getPathXForTop(nextTop);
+                          const nextDotLeft = Math.max(
+                            dotMinX,
+                            Math.min(dotMaxX, nextCurveX),
+                          );
+                          const nextStepAnchorLeft = nextDotLeft - 9;
+                          stepDragTranslateX.setValue(
+                            nextStepAnchorLeft - stepAnchorLeft,
+                          );
+                          stepDragTranslateY.setValue(nextTop - top);
+                        }
+                      },
+                      onPanResponderRelease: (_, gestureState) => {
+                        stepIsPanningRef.current = false;
+                        const upperBounds = getSegmentBounds(0);
+                        const lowerBounds = getSegmentBounds(
+                          PRE_MILESTONE_SEGMENT,
+                        );
+                        const nextTop = Math.max(
+                          upperBounds.startTop,
+                          Math.min(lowerBounds.endTop, top + gestureState.dy),
+                        );
+                        moveShortTermGoalFreely(item.step.id, nextTop);
+
+                        Animated.parallel([
+                          Animated.spring(stepDragTranslateX, {
+                            toValue: 0,
+                            useNativeDriver: true,
+                            speed: 18,
+                            bounciness: 6,
+                          }),
+                          Animated.spring(stepDragTranslateY, {
+                            toValue: 0,
+                            useNativeDriver: true,
+                            speed: 18,
+                            bounciness: 6,
+                          }),
+                        ]).start(() => {
+                          setDraggingStepId((current) =>
+                            current === item.step.id ? null : current,
+                          );
                           if (stepDragArmedIdRef.current === item.step.id) {
-                            stepIsPanningRef.current = true;
+                            stepDragArmedIdRef.current = null;
+                          }
+                        });
+                      },
+                      onPanResponderTerminate: () => {
+                        stepIsPanningRef.current = false;
+                        Animated.parallel([
+                          Animated.timing(stepDragTranslateX, {
+                            toValue: 0,
+                            duration: 150,
+                            useNativeDriver: true,
+                          }),
+                          Animated.timing(stepDragTranslateY, {
+                            toValue: 0,
+                            duration: 150,
+                            useNativeDriver: true,
+                          }),
+                        ]).start(() => {
+                          setDraggingStepId((current) =>
+                            current === item.step.id ? null : current,
+                          );
+                          if (stepDragArmedIdRef.current === item.step.id) {
+                            stepDragArmedIdRef.current = null;
+                          }
+                        });
+                      },
+                      onPanResponderTerminationRequest: () => false,
+                      onShouldBlockNativeResponder: () => true,
+                    });
+
+                    return (
+                      <Animated.View
+                        key={item.step.id}
+                        style={[
+                          styles.stepAnchor,
+                          { top, left: stepAnchorLeft },
+                          draggingStepId === item.step.id
+                            ? {
+                                transform: [
+                                  { translateX: stepDragTranslateX },
+                                  { translateY: stepDragTranslateY },
+                                  { scale: 1.08 },
+                                ],
+                              }
+                            : null,
+                          draggingStepId === item.step.id
+                            ? styles.stepAnchorDragging
+                            : null,
+                        ]}
+                        {...stepResponder.panHandlers}
+                      >
+                        <Pressable
+                          style={[
+                            styles.microDotContainer,
+                            draggingStepId === item.step.id
+                              ? styles.microDotContainerDragging
+                              : null,
+                          ]}
+                          onPressIn={() => {
+                            if (stepIsPanningRef.current) {
+                              return;
+                            }
+                          }}
+                          delayLongPress={180}
+                          onLongPress={() => {
+                            stepDragArmedIdRef.current = item.step.id;
                             setDraggingStepId(item.step.id);
                             stepDragTranslateX.setValue(0);
                             stepDragTranslateY.setValue(0);
-                          }
-                        },
-                        onPanResponderMove: (_, gestureState) => {
-                          if (stepDragArmedIdRef.current === item.step.id) {
-                            const nextTop = Math.max(
-                              segmentBounds.startTop,
-                              Math.min(segmentBounds.endTop, top + gestureState.dy),
-                            );
-                            const nextCurveX = getPathXForTop(nextTop);
-                            const nextDotLeft = Math.max(
-                              dotMinX,
-                              Math.min(dotMaxX, nextCurveX),
-                            );
-                            const nextStepAnchorLeft = nextDotLeft - 9;
-                            stepDragTranslateX.setValue(
-                              nextStepAnchorLeft - stepAnchorLeft,
-                            );
-                            stepDragTranslateY.setValue(nextTop - top);
-                          }
-                        },
-                        onPanResponderRelease: (_, gestureState) => {
-                          stepIsPanningRef.current = false;
-                          const nextTop = Math.max(
-                            segmentBounds.startTop,
-                            Math.min(segmentBounds.endTop, top + gestureState.dy),
-                          );
-                          const nextPosition =
-                            (nextTop - segmentBounds.startTop) /
-                            segmentBounds.span;
-                          moveShortTermGoalWithinSegment(item.step.id, nextPosition);
-
-                          Animated.parallel([
-                            Animated.spring(stepDragTranslateX, {
-                              toValue: 0,
-                              useNativeDriver: true,
-                              speed: 18,
-                              bounciness: 6,
-                            }),
-                            Animated.spring(stepDragTranslateY, {
-                              toValue: 0,
-                              useNativeDriver: true,
-                              speed: 18,
-                              bounciness: 6,
-                            }),
-                          ]).start(() => {
-                            setDraggingStepId((current) =>
-                              current === item.step.id ? null : current,
-                            );
-                            if (stepDragArmedIdRef.current === item.step.id) {
-                              stepDragArmedIdRef.current = null;
-                            }
-                          });
-                        },
-                        onPanResponderTerminate: () => {
-                          stepIsPanningRef.current = false;
-                          Animated.parallel([
-                            Animated.timing(stepDragTranslateX, {
-                              toValue: 0,
-                              duration: 150,
-                              useNativeDriver: true,
-                            }),
-                            Animated.timing(stepDragTranslateY, {
-                              toValue: 0,
-                              duration: 150,
-                              useNativeDriver: true,
-                            }),
-                          ]).start(() => {
-                            setDraggingStepId((current) =>
-                              current === item.step.id ? null : current,
-                            );
-                            if (stepDragArmedIdRef.current === item.step.id) {
-                              stepDragArmedIdRef.current = null;
-                            }
-                          });
-                        },
-                        onPanResponderTerminationRequest: () => false,
-                        onShouldBlockNativeResponder: () => true,
-                      });
-
-                      return (
-                        <Animated.View
-                          key={item.step.id}
-                          style={[
-                            styles.stepAnchor,
-                            { top, left: stepAnchorLeft },
-                            draggingStepId === item.step.id
-                              ? {
-                                  transform: [
-                                    { translateX: stepDragTranslateX },
-                                    { translateY: stepDragTranslateY },
-                                    { scale: 1.08 },
-                                  ],
-                                }
-                              : null,
-                            draggingStepId === item.step.id
-                              ? styles.stepAnchorDragging
-                              : null,
-                          ]}
-                          {...stepResponder.panHandlers}
-                        >
-                          <Pressable
-                            style={[
-                              styles.microDotContainer,
-                              draggingStepId === item.step.id
-                                ? styles.microDotContainerDragging
-                                : null,
-                            ]}
-                            onPressIn={() => {
+                          }}
+                          onPressOut={() => {
+                            requestAnimationFrame(() => {
                               if (stepIsPanningRef.current) {
                                 return;
                               }
-                            }}
-                            delayLongPress={180}
-                            onLongPress={() => {
-                              stepDragArmedIdRef.current = item.step.id;
-                              setDraggingStepId(item.step.id);
+                              if (stepDragArmedIdRef.current === item.step.id) {
+                                stepDragArmedIdRef.current = null;
+                              }
+                              setDraggingStepId((current) =>
+                                current === item.step.id ? null : current,
+                              );
                               stepDragTranslateX.setValue(0);
                               stepDragTranslateY.setValue(0);
-                            }}
-                            onPressOut={() => {
-                              requestAnimationFrame(() => {
-                                if (stepIsPanningRef.current) {
-                                  return;
-                                }
-                                if (
-                                  stepDragArmedIdRef.current === item.step.id
-                                ) {
-                                  stepDragArmedIdRef.current = null;
-                                }
-                                setDraggingStepId((current) =>
-                                  current === item.step.id ? null : current,
-                                );
-                                stepDragTranslateX.setValue(0);
-                                stepDragTranslateY.setValue(0);
-                              });
-                            }}
-                          >
-                            <View style={styles.microDot} />
-                          </Pressable>
+                            });
+                          }}
+                        >
+                          <View style={styles.microDot} />
+                        </Pressable>
+                        <View
+                          style={[
+                            styles.microInfoRow,
+                            {
+                              minWidth: 120,
+                              maxWidth: panelMaxWidth,
+                              left: panelOffsetLeft,
+                            },
+                            placeLabelRight
+                              ? styles.microInfoRight
+                              : styles.microInfoLeft,
+                          ]}
+                        >
                           <View
                             style={[
-                              styles.microInfoRow,
-                              { width: labelWidth },
+                              styles.microActionRow,
                               placeLabelRight
-                                ? styles.microInfoRight
-                                : styles.microInfoLeft,
+                                ? styles.microActionRowRight
+                                : styles.microActionRowLeft,
                             ]}
                           >
                             <Pressable
                               style={[
+                                styles.stepActionButton,
+                                item.step.isCompleted
+                                  ? styles.stepCompleteButtonActive
+                                  : null,
+                              ]}
+                              onPress={() =>
+                                onToggleStepCompleted(item.step.id)
+                              }
+                            >
+                              <Ionicons
+                                name={
+                                  item.step.isCompleted
+                                    ? "checkmark-circle"
+                                    : "ellipse-outline"
+                                }
+                                size={12}
+                                color={
+                                  item.step.isCompleted ? "#FFFFFF" : "#FF5F00"
+                                }
+                              />
+                            </Pressable>
+                            <Pressable
+                              style={styles.stepActionButton}
+                              onPress={() =>
+                                inlineStepEditId === item.step.id
+                                  ? onSaveInlineStep(item.step.id)
+                                  : onOpenEditStep(item.step)
+                              }
+                            >
+                              <Ionicons
+                                name={
+                                  inlineStepEditId === item.step.id
+                                    ? "checkmark"
+                                    : "pencil"
+                                }
+                                size={12}
+                                color="#FF5F00"
+                              />
+                            </Pressable>
+                            {inlineStepEditId === item.step.id ? (
+                              <Pressable
+                                style={styles.stepActionButton}
+                                onPress={onCancelInlineStep}
+                              >
+                                <Ionicons
+                                  name="close"
+                                  size={12}
+                                  color="#FF5F00"
+                                />
+                              </Pressable>
+                            ) : null}
+                            <Pressable
+                              style={styles.stepActionButton}
+                              onPress={() => onDeleteStep(item.step.id)}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={12}
+                                color="#E35300"
+                              />
+                            </Pressable>
+                          </View>
+                          {inlineStepEditId === item.step.id ? (
+                            <TextInput
+                              value={inlineStepTitle}
+                              onChangeText={setInlineStepTitle}
+                              placeholder="短期目標名"
+                              style={[
+                                styles.microLabelInput,
+                                styles.microLabelField,
+                              ]}
+                            />
+                          ) : (
+                            <Pressable
+                              style={[
                                 styles.microLabelPressable,
-                                { width: labelWidth },
+                                styles.microLabelField,
                               ]}
                               onPress={() => {
                                 if (
@@ -1786,81 +2399,301 @@ export default function CreateScreen() {
                               <Text
                                 style={[
                                   styles.microLabel,
+                                  item.step.isCompleted
+                                    ? styles.microLabelCompleted
+                                    : null,
                                   draggingStepId === item.step.id
                                     ? styles.microLabelDragging
                                     : null,
                                 ]}
-                                numberOfLines={1}
-                                ellipsizeMode="clip"
                               >
                                 {item.step.title}
                               </Text>
                             </Pressable>
-                          </View>
-                        </Animated.View>
-                      );
-                    }
+                          )}
+                        </View>
+                      </Animated.View>
+                    );
+                  }
 
-                    const milestoneInsertIndex = Math.max(
-                      0,
-                      Math.min(
-                        activeRoadmap.milestoneTemplates.length,
-                        activeRoadmap.milestoneTemplates.length -
-                          (item.gapIndex + 1),
-                      ),
-                    );
-                    return (
-                      <View
-                        key={`gap-${item.gapIndex}`}
-                        style={[styles.stepGap, { top, left }]}
+                  const milestoneInsertIndex = Math.max(
+                    0,
+                    Math.min(
+                      activeRoadmap.milestoneTemplates.length,
+                      activeRoadmap.milestoneTemplates.length -
+                        (item.gapIndex + 1),
+                    ),
+                  );
+                  const gapTop = milestoneCount === 0 ? top + 46 : top;
+                  return (
+                    <View
+                      key={`gap-${item.gapIndex}`}
+                      style={[styles.stepGap, { top: gapTop, left }]}
+                    >
+                      <Pressable
+                        style={styles.stepGapButton}
+                        onPress={() =>
+                          onOpenAddMilestoneAt(milestoneInsertIndex)
+                        }
                       >
-                        <Pressable
-                          style={styles.stepGapButton}
-                          onPress={() =>
-                            onOpenAddMilestoneAt(milestoneInsertIndex)
-                          }
-                        >
-                          <Ionicons name="add" size={14} color="#FF5F00" />
-                          <Text style={styles.gapTypeText}>M</Text>
-                        </Pressable>
-                      </View>
-                    );
-                  });
-                })()
-              )}
-              {Array.from({ length: segmentCount }).map((_, segmentIndex) => {
+                        <Ionicons name="add" size={14} color="#FF5F00" />
+                        <Text style={styles.gapTypeText}>M</Text>
+                      </Pressable>
+                    </View>
+                  );
+                });
+              })()}
+              {(milestoneCount === 0
+                ? [PRE_MILESTONE_SEGMENT]
+                : [
+                    PRE_MILESTONE_SEGMENT,
+                    ...Array.from({ length: segmentCount }).map(
+                      (_, segmentIndex) => segmentIndex,
+                    ),
+                  ]
+              ).map((segmentIndex) => {
                 const bounds = getSegmentBounds(segmentIndex);
                 const addTop = bounds.startTop + bounds.span * 0.5;
                 const addX = getPathXForTop(addTop);
-                const addLeft = Math.max(
+                const isLowerArea = addTop > roadmapHeight - 240;
+                const placeOnLeft = isLowerArea || addX > roadmapWidth * 0.58;
+                const baseLeft = Math.max(
                   12,
-                  Math.min(roadmapWidth - 34, addX + 26),
+                  Math.min(
+                    roadmapWidth - 34,
+                    placeOnLeft ? addX - 54 : addX + 26,
+                  ),
                 );
+                const baseTop = addTop - 14 - (isLowerArea ? 26 : 0);
+                const buttonId = `segment-add-${segmentIndex}`;
+                const buttonOffset = addButtonOffsets[buttonId] ?? {
+                  x: 0,
+                  y: 0,
+                };
+                const segmentAddResponder = PanResponder.create({
+                  onStartShouldSetPanResponder: () => false,
+                  onMoveShouldSetPanResponder: (_, gestureState) =>
+                    addButtonDragArmedIdRef.current === buttonId &&
+                    Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 4,
+                  onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+                    addButtonDragArmedIdRef.current === buttonId &&
+                    Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 4,
+                  onPanResponderGrant: () => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      addButtonIsPanningRef.current = true;
+                      setDraggingAddButtonId(buttonId);
+                      addButtonDragTranslateX.setValue(0);
+                      addButtonDragTranslateY.setValue(0);
+                    }
+                  },
+                  onPanResponderMove: (_, gestureState) => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      addButtonDidDragRef.current =
+                        addButtonDidDragRef.current ||
+                        Math.abs(gestureState.dx) + Math.abs(gestureState.dy) >
+                          4;
+                      addButtonDragTranslateX.setValue(gestureState.dx);
+                      addButtonDragTranslateY.setValue(gestureState.dy);
+                    }
+                  },
+                  onPanResponderRelease: (_, gestureState) => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      updateAddButtonOffset(
+                        buttonId,
+                        buttonOffset.x + gestureState.dx,
+                        buttonOffset.y + gestureState.dy,
+                        { width: 28, height: 28 },
+                        baseLeft,
+                        addTop - 14,
+                      );
+                    }
+                    resetAddButtonDrag();
+                  },
+                  onPanResponderTerminate: () => {
+                    resetAddButtonDrag();
+                  },
+                  onPanResponderTerminationRequest: () => false,
+                  onShouldBlockNativeResponder: () => true,
+                });
 
                 return (
-                  <Pressable
+                  <Animated.View
                     key={`segment-add-${segmentIndex}`}
-                    style={[styles.segmentAddButton, { top: addTop - 14, left: addLeft }]}
-                    onPress={() => onOpenAddStep(segmentIndex, 0.5)}
+                    style={[
+                      styles.segmentAddButton,
+                      {
+                        top: baseTop,
+                        left: baseLeft,
+                        transform:
+                          draggingAddButtonId === buttonId
+                            ? [
+                                { translateX: addButtonDragTranslateX },
+                                { translateY: addButtonDragTranslateY },
+                                { scale: 1.08 },
+                              ]
+                            : [
+                                { translateX: buttonOffset.x },
+                                { translateY: buttonOffset.y },
+                              ],
+                      },
+                      draggingAddButtonId === buttonId
+                        ? styles.segmentAddButtonDragging
+                        : null,
+                    ]}
+                    {...segmentAddResponder.panHandlers}
                   >
-                    <Ionicons name="add" size={14} color="#FF5F00" />
-                  </Pressable>
+                    <Pressable
+                      style={styles.segmentAddButtonInner}
+                      onPress={() => {
+                        if (
+                          addButtonDragArmedIdRef.current === buttonId ||
+                          addButtonDidDragRef.current
+                        ) {
+                          return;
+                        }
+                        onOpenAddStep(segmentIndex, 0.5);
+                      }}
+                      delayLongPress={180}
+                      onLongPress={() => {
+                        addButtonDragArmedIdRef.current = buttonId;
+                        setDraggingAddButtonId(buttonId);
+                        addButtonIsPanningRef.current = false;
+                        addButtonDidDragRef.current = false;
+                        addButtonDragTranslateX.setValue(0);
+                        addButtonDragTranslateY.setValue(0);
+                      }}
+                      onPressOut={() => {
+                        requestAnimationFrame(() => {
+                          if (addButtonIsPanningRef.current) {
+                            return;
+                          }
+                          if (addButtonDragArmedIdRef.current === buttonId) {
+                            addButtonDragArmedIdRef.current = null;
+                          }
+                        });
+                      }}
+                    >
+                      <Ionicons name="add" size={14} color="#FF5F00" />
+                    </Pressable>
+                  </Animated.View>
                 );
               })}
-              <Pressable style={styles.pathFab} onPress={onOpenAddMilestone}>
-                <Ionicons name="add" size={30} color="#FFFFFF" />
-              </Pressable>
-            </View>
+              {(() => {
+                const buttonId = "milestone-add-fab";
+                const baseLeft = 20;
+                const baseTop = roadmapHeight - 90;
+                const buttonOffset = addButtonOffsets[buttonId] ?? {
+                  x: 0,
+                  y: 0,
+                };
+                const milestoneAddResponder = PanResponder.create({
+                  onStartShouldSetPanResponder: () => false,
+                  onMoveShouldSetPanResponder: (_, gestureState) =>
+                    addButtonDragArmedIdRef.current === buttonId &&
+                    Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 4,
+                  onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+                    addButtonDragArmedIdRef.current === buttonId &&
+                    Math.abs(gestureState.dx) + Math.abs(gestureState.dy) > 4,
+                  onPanResponderGrant: () => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      addButtonIsPanningRef.current = true;
+                      setDraggingAddButtonId(buttonId);
+                      addButtonDragTranslateX.setValue(0);
+                      addButtonDragTranslateY.setValue(0);
+                    }
+                  },
+                  onPanResponderMove: (_, gestureState) => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      addButtonDidDragRef.current =
+                        addButtonDidDragRef.current ||
+                        Math.abs(gestureState.dx) + Math.abs(gestureState.dy) >
+                          4;
+                      addButtonDragTranslateX.setValue(gestureState.dx);
+                      addButtonDragTranslateY.setValue(gestureState.dy);
+                    }
+                  },
+                  onPanResponderRelease: (_, gestureState) => {
+                    if (addButtonDragArmedIdRef.current === buttonId) {
+                      updateAddButtonOffset(
+                        buttonId,
+                        buttonOffset.x + gestureState.dx,
+                        buttonOffset.y + gestureState.dy,
+                        { width: 56, height: 56 },
+                        baseLeft,
+                        baseTop,
+                      );
+                    }
+                    resetAddButtonDrag();
+                  },
+                  onPanResponderTerminate: () => {
+                    resetAddButtonDrag();
+                  },
+                  onPanResponderTerminationRequest: () => false,
+                  onShouldBlockNativeResponder: () => true,
+                });
 
-            <View style={styles.fauxFooter}>
-              <Pressable onPress={onResetToIntro}>
-                <Text style={styles.linkText}>最初に戻る</Text>
-              </Pressable>
-              <Pressable onPress={onClear}>
-                <Text style={styles.linkText}>
-                  現在のマイルストーンをクリア
-                </Text>
-              </Pressable>
+                return (
+                  <Animated.View
+                    style={[
+                      styles.pathFab,
+                      {
+                        left: "50%",
+                        bottom: 26,
+                        marginLeft: -28,
+                        transform:
+                          draggingAddButtonId === buttonId
+                            ? [
+                                { translateX: addButtonDragTranslateX },
+                                { translateY: addButtonDragTranslateY },
+                                { scale: 1.05 },
+                              ]
+                            : [
+                                { translateX: buttonOffset.x },
+                                { translateY: buttonOffset.y },
+                              ],
+                      },
+                      draggingAddButtonId === buttonId
+                        ? styles.pathFabDragging
+                        : null,
+                    ]}
+                    {...milestoneAddResponder.panHandlers}
+                  >
+                    <Pressable
+                      style={styles.pathFabButton}
+                      onPress={() => {
+                        if (
+                          addButtonDragArmedIdRef.current === buttonId ||
+                          addButtonDidDragRef.current
+                        ) {
+                          return;
+                        }
+                        onOpenAddMilestone();
+                      }}
+                      delayLongPress={180}
+                      onLongPress={() => {
+                        addButtonDragArmedIdRef.current = buttonId;
+                        setDraggingAddButtonId(buttonId);
+                        addButtonIsPanningRef.current = false;
+                        addButtonDidDragRef.current = false;
+                        addButtonDragTranslateX.setValue(0);
+                        addButtonDragTranslateY.setValue(0);
+                      }}
+                      onPressOut={() => {
+                        requestAnimationFrame(() => {
+                          if (addButtonIsPanningRef.current) {
+                            return;
+                          }
+                          if (addButtonDragArmedIdRef.current === buttonId) {
+                            addButtonDragArmedIdRef.current = null;
+                          }
+                        });
+                      }}
+                    >
+                      <Ionicons name="add" size={30} color="#FFFFFF" />
+                    </Pressable>
+                  </Animated.View>
+                );
+              })()}
             </View>
           </ScrollView>
 
@@ -1881,7 +2714,7 @@ export default function CreateScreen() {
                     ? addingMilestoneIndex !== null
                       ? `マイルストーンを追加（位置: ${addingMilestoneIndex + 1}）`
                       : "マイルストーンを追加（末尾）"
-                    : `短期目標を追加（区間: ${(addingStepPlacement?.segmentIndex ?? 0) + 1}, 位置: ${Math.round((addingStepPlacement?.position ?? 0.5) * 100)}%）`}
+                    : `短期目標を追加（区間: ${Math.max(1, segmentCount - (addingStepPlacement?.segmentIndex ?? 0))}, 位置: ${Math.round((addingStepPlacement?.position ?? 0.5) * 100)}%）`}
                 </Text>
                 <InputField
                   value={
@@ -2017,7 +2850,7 @@ const createStyles = () =>
     content: {
       paddingHorizontal: 0,
       paddingTop: 0,
-      paddingBottom: 120,
+      paddingBottom: 24,
     },
     roadmapWrap: {
       height: 1720,
@@ -2217,15 +3050,37 @@ const createStyles = () =>
       letterSpacing: 2.2,
       marginBottom: 10,
     },
+    goalHeroTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
     goalHeroTitle: {
       color: "#1F2937",
       fontSize: 24,
       lineHeight: 30,
       fontWeight: "700",
     },
+    goalHeroTitleFlex: {
+      flex: 1,
+    },
     goalHeroInput: {
       minHeight: 58,
       fontSize: 20,
+    },
+    goalHeroInputFlex: {
+      flex: 1,
+      marginBottom: 0,
+    },
+    goalDeleteButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: "rgba(255,95,0,0.28)",
+      backgroundColor: "rgba(255,255,255,0.95)",
     },
     editPanel: {
       marginTop: 24,
@@ -2433,6 +3288,82 @@ const createStyles = () =>
       minHeight: 56,
       textAlignVertical: "top",
     },
+    wizardOptionsWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      marginTop: 2,
+    },
+    wizardOptionsBlock: {
+      gap: 12,
+    },
+    wizardDateButton: {
+      minHeight: 56,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderWidth: 1,
+      borderColor: "rgba(255,95,0,0.24)",
+      backgroundColor: "rgba(255,255,255,0.96)",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    wizardDateText: {
+      color: "#2C3E50",
+      fontSize: 15,
+      fontWeight: "700",
+      flex: 1,
+    },
+    wizardDatePlaceholder: {
+      color: "rgba(44,62,80,0.48)",
+      fontWeight: "600",
+    },
+    wizardDatePickerWrap: {
+      marginTop: 8,
+      padding: 12,
+      borderRadius: 16,
+      backgroundColor: "rgba(255,255,255,0.96)",
+      borderWidth: 1,
+      borderColor: "rgba(255,95,0,0.16)",
+      gap: 10,
+    },
+    wizardDateCloseButton: {
+      alignSelf: "flex-end",
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: "rgba(255,95,0,0.1)",
+    },
+    wizardDateCloseButtonText: {
+      color: "#FF5F00",
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    wizardOptionChip: {
+      minHeight: 42,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: "rgba(255,95,0,0.22)",
+      backgroundColor: "rgba(255,255,255,0.96)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    wizardOptionChipSelected: {
+      backgroundColor: "#FF5F00",
+      borderColor: "#FF5F00",
+    },
+    wizardOptionText: {
+      color: "#2C3E50",
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    wizardOptionTextSelected: {
+      color: "#FFFFFF",
+    },
     wizardFooter: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -2512,20 +3443,51 @@ const createStyles = () =>
     },
     microInfoRow: {
       position: "absolute",
-      flexDirection: "row",
-      alignItems: "center",
-      top: -2,
+      flexDirection: "column",
+      top: -4,
+      rowGap: 3,
+      minWidth: 120,
+      maxWidth: 160,
+      backgroundColor: "rgba(255,255,255,0.9)",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      alignSelf: "flex-start",
+      alignItems: "flex-start",
+      flexShrink: 1,
+      zIndex: 8,
       overflow: "visible",
     },
     microInfoRight: {
-      left: 52,
+      alignItems: "flex-start",
     },
     microInfoLeft: {
-      right: 52,
+      alignItems: "flex-end",
+    },
+    microActionRow: {
       flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+      flexWrap: "nowrap",
+      flexShrink: 0,
+    },
+    microActionRowRight: {
+      justifyContent: "flex-start",
+    },
+    microActionRowLeft: {
+      justifyContent: "flex-start",
     },
     microLabelPressable: {
+      width: "100%",
       alignSelf: "flex-start",
+      maxWidth: "100%",
+      flexShrink: 1,
+    },
+    microLabelField: {
+      width: "100%",
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+      flexShrink: 1,
     },
     microDotContainer: {
       width: 18,
@@ -2568,9 +3530,12 @@ const createStyles = () =>
       paddingVertical: 7,
       borderWidth: 1,
       borderColor: "rgba(60,60,60,0.08)",
+      alignSelf: "flex-start",
+      maxWidth: "100%",
       flexShrink: 1,
       flexWrap: "wrap",
       lineHeight: 16,
+      minHeight: 0,
     },
     microLabelDragging: {
       backgroundColor: "rgba(255,255,255,0.98)",
@@ -2582,15 +3547,43 @@ const createStyles = () =>
       elevation: 6,
       color: "#1F2937",
     },
+    microLabelCompleted: {
+      color: "rgba(107,114,128,0.92)",
+      backgroundColor: "rgba(244,245,247,0.96)",
+      borderColor: "rgba(156,163,175,0.36)",
+      textDecorationLine: "line-through",
+    },
+    microLabelInput: {
+      color: "#1F2937",
+      fontSize: 11,
+      fontWeight: "500",
+      backgroundColor: "rgba(255,255,255,0.98)",
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderWidth: 1.5,
+      borderColor: "rgba(255,95,0,0.48)",
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+      flexShrink: 1,
+      flexWrap: "wrap",
+      lineHeight: 16,
+      minHeight: 0,
+    },
     stepActionButton: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: 24,
+      height: 24,
+      borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
+      flexShrink: 0,
       backgroundColor: "rgba(255,255,255,0.95)",
       borderWidth: 1,
       borderColor: "rgba(255,95,0,0.28)",
+    },
+    stepCompleteButtonActive: {
+      backgroundColor: "#FF5F00",
+      borderColor: "#FF5F00",
     },
     orderButtonDisabled: {
       opacity: 0.45,
@@ -2624,6 +3617,18 @@ const createStyles = () =>
       shadowRadius: 8,
       elevation: 6,
       zIndex: 6,
+    },
+    segmentAddButtonDragging: {
+      shadowOpacity: 0.28,
+      shadowRadius: 12,
+      elevation: 10,
+      zIndex: 11,
+    },
+    segmentAddButtonInner: {
+      width: "100%",
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
     },
     stepGapButton: {
       width: 34,
@@ -2704,6 +3709,28 @@ const createStyles = () =>
       alignItems: "center",
       gap: 6,
     },
+    stageCompleteButton: {
+      minWidth: 72,
+      height: 30,
+      borderRadius: 15,
+      paddingHorizontal: 10,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      backgroundColor: "#FF5F00",
+      borderWidth: 1,
+      borderColor: "#FF5F00",
+    },
+    stageCompleteButtonDisabled: {
+      opacity: 0.45,
+    },
+    stageCompleteButtonText: {
+      color: "#FFFFFF",
+      fontSize: 12,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+    },
     stageOrderButton: {
       width: 24,
       height: 24,
@@ -2728,12 +3755,18 @@ const createStyles = () =>
       letterSpacing: 2,
       fontWeight: "700",
     },
+    stageTitleWrap: {
+      flexShrink: 1,
+      width: "100%",
+    },
     stageTitle: {
       color: "#121212",
       fontSize: 36,
       lineHeight: 42,
       fontWeight: "700",
       marginBottom: 6,
+      flexShrink: 1,
+      flexWrap: "wrap",
     },
     stageSubtitle: {
       color: "rgba(35,35,35,0.84)",
@@ -2741,26 +3774,6 @@ const createStyles = () =>
       lineHeight: 24,
       fontWeight: "400",
       marginBottom: 12,
-    },
-    stageFooterRow: {
-      borderTopWidth: 1,
-      borderTopColor: "rgba(60,60,60,0.12)",
-      paddingTop: 10,
-      marginTop: 8,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    stageFooterKey: {
-      color: "rgba(60,60,60,0.55)",
-      fontSize: 11,
-      letterSpacing: 1,
-      fontWeight: "600",
-    },
-    stageFooterValue: {
-      color: "#E35300",
-      fontSize: 14,
-      fontWeight: "700",
     },
     inlineMilestoneEditor: {
       marginBottom: 8,
@@ -2924,9 +3937,6 @@ const createStyles = () =>
     },
     pathFab: {
       position: "absolute",
-      left: "50%",
-      bottom: 26,
-      marginLeft: -28,
       width: 56,
       height: 56,
       borderRadius: 14,
@@ -2940,18 +3950,16 @@ const createStyles = () =>
       elevation: 8,
       zIndex: 7,
     },
-    fauxFooter: {
-      gap: 16,
-      marginTop: 10,
-      marginHorizontal: 16,
-      marginBottom: 20,
+    pathFabDragging: {
+      shadowOpacity: 0.48,
+      shadowRadius: 22,
+      elevation: 12,
+      zIndex: 12,
     },
-    linkText: {
-      color: "#FF5F00",
-      textDecorationLine: "underline",
-      textDecorationColor: "#FF5F00",
-      fontSize: 14,
-      fontWeight: "700",
-      marginBottom: 10,
+    pathFabButton: {
+      width: "100%",
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
     },
   });
