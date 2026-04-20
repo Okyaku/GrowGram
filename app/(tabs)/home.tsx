@@ -520,6 +520,9 @@ export default function HomeScreen() {
   const [commentInputByPost, setCommentInputByPost] = React.useState<
     Record<string, string>
   >({});
+  const [commentPanelOpenByPost, setCommentPanelOpenByPost] = React.useState<
+    Record<string, boolean>
+  >({});
   const [commentLikeRecordIdByComment, setCommentLikeRecordIdByComment] =
     React.useState<Record<string, string>>({});
   const [commentLikeRecordIdsByComment, setCommentLikeRecordIdsByComment] =
@@ -2001,11 +2004,6 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.postBottomSection}>
-                <Text style={styles.gestureHint}>
-                  長押し: 情熱 / 2タップ: 論理 / 3タップ: 一貫性
-                </Text>
-
-                <Text style={styles.logLabel}>LOG:</Text>
                 <Text style={styles.log}>{post.log}</Text>
                 <View style={styles.tagRow}>
                   <Ionicons
@@ -2033,9 +2031,7 @@ export default function HomeScreen() {
                       size={14}
                       color={theme.colors.primary}
                     />
-                    <Text style={styles.scoreLabel}>
-                      情熱 {post.passionCount}
-                    </Text>
+                    <Text style={styles.scoreLabel}>{post.passionCount}</Text>
                   </Pressable>
                   <Pressable
                     style={[
@@ -2053,9 +2049,7 @@ export default function HomeScreen() {
                       size={14}
                       color={theme.colors.primary}
                     />
-                    <Text style={styles.scoreLabel}>
-                      論理 {post.logicCount}
-                    </Text>
+                    <Text style={styles.scoreLabel}>{post.logicCount}</Text>
                   </Pressable>
                   <Pressable
                     style={[
@@ -2073,9 +2067,7 @@ export default function HomeScreen() {
                       size={14}
                       color={theme.colors.primary}
                     />
-                    <Text style={styles.scoreLabel}>
-                      一貫性 {post.routineCount}
-                    </Text>
+                    <Text style={styles.scoreLabel}>{post.routineCount}</Text>
                   </Pressable>
                 </View>
 
@@ -2091,12 +2083,9 @@ export default function HomeScreen() {
                             ? "bookmark"
                             : "bookmark-outline"
                         }
-                        size={16}
+                        size={25}
                         color={theme.colors.textSub}
                       />
-                      <Text style={styles.postActionText}>
-                        保存 {post.saveCount}
-                      </Text>
                     </Pressable>
                   )}
                   <Pressable
@@ -2108,7 +2097,6 @@ export default function HomeScreen() {
                       size={16}
                       color={theme.colors.textSub}
                     />
-                    <Text style={styles.postActionText}>再投稿</Text>
                   </Pressable>
                   {isOwner ? (
                     <Pressable
@@ -2117,12 +2105,34 @@ export default function HomeScreen() {
                     >
                       <Ionicons
                         name="archive-outline"
-                        size={16}
+                        size={25}
                         color={theme.colors.textSub}
                       />
-                      <Text style={styles.postActionText}>アーカイブ</Text>
                     </Pressable>
                   ) : null}
+                  <Pressable
+                    style={styles.postActionItem}
+                    onPress={() =>
+                      setCommentPanelOpenByPost((prev) => ({
+                        ...prev,
+                        [post.id]: !prev[post.id],
+                      }))
+                    }
+                  >
+                    <Ionicons
+                      name={
+                        commentPanelOpenByPost[post.id]
+                          ? "chatbubble"
+                          : "chatbubble-outline"
+                      }
+                      size={25}
+                      color={
+                        commentPanelOpenByPost[post.id]
+                          ? theme.colors.primary
+                          : theme.colors.textSub
+                      }
+                    />
+                  </Pressable>
                   {isOwner ? (
                     <Pressable
                       style={styles.postActionItem}
@@ -2133,104 +2143,100 @@ export default function HomeScreen() {
                         size={16}
                         color={theme.colors.danger}
                       />
-                      <Text
-                        style={[
-                          styles.postActionText,
-                          { color: theme.colors.danger },
-                        ]}
-                      >
-                        削除
-                      </Text>
                     </Pressable>
                   ) : null}
                 </View>
 
-                <View style={styles.commentSection}>
-                  <Text style={styles.commentSectionTitle}>コメント</Text>
-                  <View style={styles.commentInputRow}>
-                    <TextInput
-                      value={commentInputByPost[post.id] ?? ""}
-                      onChangeText={(text) =>
-                        setCommentInputByPost((prev) => ({
-                          ...prev,
-                          [post.id]: text,
-                        }))
-                      }
-                      placeholder="コメントを書く（@username でメンション）"
-                      placeholderTextColor={theme.colors.textSub}
-                      style={styles.commentInput}
-                    />
-                    <Pressable
-                      style={styles.commentSendButton}
-                      onPress={() => void onSubmitComment(post.id)}
-                    >
-                      <Ionicons
-                        name="send"
-                        size={14}
-                        color={theme.colors.onPrimary}
+                {commentPanelOpenByPost[post.id] ? (
+                  <View style={styles.commentSection}>
+                    <Text style={styles.commentSectionTitle}>コメント</Text>
+                    <View style={styles.commentInputRow}>
+                      <TextInput
+                        value={commentInputByPost[post.id] ?? ""}
+                        onChangeText={(text) =>
+                          setCommentInputByPost((prev) => ({
+                            ...prev,
+                            [post.id]: text,
+                          }))
+                        }
+                        placeholder="コメントを書く"
+                        placeholderTextColor={theme.colors.textSub}
+                        style={styles.commentInput}
                       />
-                    </Pressable>
-                  </View>
-
-                  {(commentsByPost[post.id] ?? []).length === 0 ? (
-                    <Text style={styles.commentEmptyText}>
-                      最初のコメントをしてみよう。
-                    </Text>
-                  ) : null}
-
-                  {(commentsByPost[post.id] ?? []).map((comment) => (
-                    <View key={comment.id} style={styles.commentCard}>
-                      <View style={styles.commentHeaderRow}>
-                        <Pressable
-                          style={styles.commentOwnerRow}
-                          onPress={() => {
-                            if (comment.ownerId) {
-                              router.push(`/profile/${comment.ownerId}`);
-                            }
-                          }}
-                        >
-                          {comment.ownerAvatar ? (
-                            <Image
-                              source={{ uri: comment.ownerAvatar }}
-                              style={styles.commentAvatar}
-                            />
-                          ) : (
-                            <View style={styles.commentAvatarPlaceholder} />
-                          )}
-                          <Text style={styles.commentOwner}>
-                            {comment.ownerName}
-                          </Text>
-                        </Pressable>
-
-                        <Pressable
-                          style={[
-                            styles.commentLikeButton,
-                            !isIdentityReady &&
-                              styles.commentLikeButtonDisabled,
-                          ]}
-                          disabled={!isIdentityReady}
-                          onPress={() => void onToggleCommentLike(comment)}
-                        >
-                          <Ionicons
-                            name={comment.likedByMe ? "heart" : "heart-outline"}
-                            size={14}
-                            color={
-                              comment.likedByMe
-                                ? theme.colors.danger
-                                : theme.colors.textSub
-                            }
-                          />
-                          <Text style={styles.commentLikeText}>
-                            {comment.likeCount}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      <Text style={styles.commentText}>
-                        {renderCommentContent(comment.content)}
-                      </Text>
+                      <Pressable
+                        style={styles.commentSendButton}
+                        onPress={() => void onSubmitComment(post.id)}
+                      >
+                        <Ionicons
+                          name="send"
+                          size={14}
+                          color={theme.colors.onPrimary}
+                        />
+                      </Pressable>
                     </View>
-                  ))}
-                </View>
+
+                    {(commentsByPost[post.id] ?? []).length === 0 ? (
+                      <Text style={styles.commentEmptyText}>
+                        最初のコメントをしてみよう。
+                      </Text>
+                    ) : null}
+
+                    {(commentsByPost[post.id] ?? []).map((comment) => (
+                      <View key={comment.id} style={styles.commentCard}>
+                        <View style={styles.commentHeaderRow}>
+                          <Pressable
+                            style={styles.commentOwnerRow}
+                            onPress={() => {
+                              if (comment.ownerId) {
+                                router.push(`/profile/${comment.ownerId}`);
+                              }
+                            }}
+                          >
+                            {comment.ownerAvatar ? (
+                              <Image
+                                source={{ uri: comment.ownerAvatar }}
+                                style={styles.commentAvatar}
+                              />
+                            ) : (
+                              <View style={styles.commentAvatarPlaceholder} />
+                            )}
+                            <Text style={styles.commentOwner}>
+                              {comment.ownerName}
+                            </Text>
+                          </Pressable>
+
+                          <Pressable
+                            style={[
+                              styles.commentLikeButton,
+                              !isIdentityReady &&
+                                styles.commentLikeButtonDisabled,
+                            ]}
+                            disabled={!isIdentityReady}
+                            onPress={() => void onToggleCommentLike(comment)}
+                          >
+                            <Ionicons
+                              name={
+                                comment.likedByMe ? "heart" : "heart-outline"
+                              }
+                              size={14}
+                              color={
+                                comment.likedByMe
+                                  ? theme.colors.danger
+                                  : theme.colors.textSub
+                              }
+                            />
+                            <Text style={styles.commentLikeText}>
+                              {comment.likeCount}
+                            </Text>
+                          </Pressable>
+                        </View>
+                        <Text style={styles.commentText}>
+                          {renderCommentContent(comment.content)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             </View>
           );
