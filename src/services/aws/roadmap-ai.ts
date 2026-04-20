@@ -26,44 +26,6 @@ export type AIRoadmapRequest = {
   setbacks: string;
 };
 
-const buildFallbackRoadmap = (input: AIRoadmapRequest): AIRoadmapResponse => {
-  const safeGoal = input.goal.trim() || "目標達成ロードマップ";
-
-  return {
-    goal: safeGoal,
-    milestones: [
-      {
-        title: "現状把握",
-        description: "目標達成に向けて必要な情報を整理します。",
-        tasks: [
-          {
-            title: "目標を明確化",
-            description: "期限と達成条件を1文で定義する。",
-          },
-          {
-            title: "現状を棚卸し",
-            description: "今できていることと課題を3つずつ書き出す。",
-          },
-        ],
-      },
-      {
-        title: "実行計画",
-        description: "毎週進めるアクションを決めます。",
-        tasks: [
-          {
-            title: "週次タスク作成",
-            description: "1週間単位の実行タスクを設定する。",
-          },
-          {
-            title: "振り返り設定",
-            description: "週末に進捗確認の時間を15分確保する。",
-          },
-        ],
-      },
-    ],
-  };
-};
-
 const generateRoadmapQuery = /* GraphQL */ `
   query GenerateRoadmapWithAI($input: AIRoadmapInput!) {
     generateRoadmapWithAI(input: $input) {
@@ -118,6 +80,32 @@ const normalizeMilestone = (milestone: unknown): AIRoadmapMilestone | null => {
   return { title, description, tasks };
 };
 
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const raw = error as {
+      errors?: Array<{ message?: string }>;
+      message?: string;
+    };
+
+    if (Array.isArray(raw.errors) && raw.errors.length > 0) {
+      const firstMessage = raw.errors[0]?.message?.trim();
+      if (firstMessage) {
+        return firstMessage;
+      }
+    }
+
+    if (typeof raw.message === "string" && raw.message.trim()) {
+      return raw.message.trim();
+    }
+  }
+
+  return "AIロードマップ生成に失敗しました。";
+};
+
 export async function generateRoadmapFromAI(
   input: AIRoadmapRequest,
 ): Promise<AIRoadmapResponse> {
@@ -127,7 +115,10 @@ export async function generateRoadmapFromAI(
     const aiCall = client.graphql({
       query: generateRoadmapQuery,
       variables: { input },
-    }) as Promise<{ data?: { generateRoadmapWithAI?: unknown } }>;
+    }) as Promise<{
+      data?: { generateRoadmapWithAI?: unknown };
+      errors?: Array<{ message?: string }>;
+    }>;
 
     const response = await Promise.race([
       aiCall,
@@ -135,12 +126,21 @@ export async function generateRoadmapFromAI(
         setTimeout(
           () =>
             reject(
-              new Error("AI roadmap generation timed out after 30 seconds."),
+              new Error("AI roadmap generation timed out after 90 seconds."),
             ),
-          30000,
+          90000,
         );
       }),
     ]);
+
+    if (Array.isArray(response?.errors) && response.errors.length > 0) {
+      throw new Error(
+        response.errors
+          .map((item) => item?.message?.trim())
+          .filter((item): item is string => Boolean(item))
+          .join(" | "),
+      );
+    }
 
     const payload = response?.data?.generateRoadmapWithAI;
 
@@ -169,7 +169,8 @@ export async function generateRoadmapFromAI(
       milestones,
     };
   } catch (error) {
-    console.warn("[Roadmap AI] fallback roadmap applied:", error);
-    return buildFallbackRoadmap(input);
+    const message = getErrorMessage(error);
+    console.warn("[Roadmap AI] request failed:", message);
+    throw new Error(message);
   }
 }

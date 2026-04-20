@@ -77,6 +77,7 @@ export default function CreateScreen() {
     activeRoadmap,
     milestones,
     roadmaps,
+    lastGenerateError,
     clearCurrentMilestone,
     generateRoadmap,
     addBlankRoadmap,
@@ -476,7 +477,7 @@ export default function CreateScreen() {
       setFlowStep("aiQuestions");
       Alert.alert(
         "AI生成に失敗しました",
-        "もう一度試すか、手動モードで作成してください。",
+        lastGenerateError || "もう一度試すか、手動モードで作成してください。",
       );
     }
   };

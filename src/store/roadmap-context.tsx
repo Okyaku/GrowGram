@@ -973,65 +973,7 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
           ? error.message
           : "AIロードマップ生成に失敗しました。";
       setLastGenerateError(errorMessage);
-
-      // Final safety net: even if AI call fails unexpectedly,
-      // create a baseline roadmap so the flow does not stall.
-      const fallbackRoadmapId = `roadmap-${Date.now()}`;
-      const fallbackRoadmap = createRoadmapItem({
-        id: fallbackRoadmapId,
-        goal: safeGoal,
-        mode: "ai-auto",
-        level,
-        roadmapMilestones: [
-          {
-            id: `${fallbackRoadmapId}-phase-1`,
-            title: "現状把握",
-            description: "目標達成に向けて必要な情報を整理します。",
-            tasks: [
-              {
-                id: `${fallbackRoadmapId}-task-1-1`,
-                title: "目標を明確化",
-                description: "期限と達成条件を1文で定義する。",
-              },
-              {
-                id: `${fallbackRoadmapId}-task-1-2`,
-                title: "現状を棚卸し",
-                description: "今できていることと課題を3つずつ書き出す。",
-              },
-            ],
-          },
-          {
-            id: `${fallbackRoadmapId}-phase-2`,
-            title: "実行計画",
-            description: "毎週進めるアクションを決めます。",
-            tasks: [
-              {
-                id: `${fallbackRoadmapId}-task-2-1`,
-                title: "週次タスク作成",
-                description: "1週間単位の実行タスクを設定する。",
-              },
-              {
-                id: `${fallbackRoadmapId}-task-2-2`,
-                title: "振り返り設定",
-                description: "週末に進捗確認の時間を15分確保する。",
-              },
-            ],
-          },
-        ],
-      });
-
-      setRoadmaps((prev) => [...prev, fallbackRoadmap]);
-      setActiveRoadmapId(fallbackRoadmapId);
-      setNotifications((prev) => [
-        {
-          id: `n-ai-fallback-${Date.now()}`,
-          message: "AI応答が不安定だったため、標準ロードマップで作成しました。",
-          time: nowText(),
-        },
-        ...prev,
-      ]);
-
-      return { success: true, roadmapId: fallbackRoadmapId };
+      return { success: false };
     } finally {
       setIsGeneratingRoadmap(false);
     }
