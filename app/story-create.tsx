@@ -1,5 +1,12 @@
 import React from "react";
-import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import {
+  Alert,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -37,8 +44,31 @@ export default function StoryCreateScreen() {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const onPickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+    let permission = current;
+
+    if (!current.granted && current.canAskAgain) {
+      permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    }
+
     if (!permission.granted) {
+      if (!permission.canAskAgain) {
+        Alert.alert(
+          "写真アクセスがオフです",
+          "iPhoneの設定から写真アクセスを許可してください。",
+          [
+            { text: "キャンセル", style: "cancel" },
+            {
+              text: "設定を開く",
+              onPress: () => {
+                void Linking.openSettings();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
       Alert.alert(
         "権限が必要です",
         "写真を選択するためにメディア権限を許可してください。",
@@ -102,18 +132,12 @@ export default function StoryCreateScreen() {
         .data?.createStory?.id;
       recordDailyActivity("story");
 
-      Alert.alert("投稿完了", "ストーリーを投稿しました。", [
-        {
-          text: "OK",
-          onPress: () => {
-            if (storyId) {
-              router.replace(`/story/${storyId}`);
-              return;
-            }
-            router.back();
-          },
-        },
-      ]);
+      if (storyId) {
+        router.replace(`/story/${storyId}`);
+        return;
+      }
+
+      router.back();
     } catch (error) {
       console.error("[StoryCreate] failed to create story:", error);
       Alert.alert(

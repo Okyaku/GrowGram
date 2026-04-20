@@ -67,7 +67,14 @@ export default function RootLayout() {
         <Stack.Screen name="chat/index" />
         <Stack.Screen name="profile/[userId]" />
         <Stack.Screen name="chat/[userId]" />
-        <Stack.Screen name="story/[storyId]" />
+        <Stack.Screen
+          name="story/[storyId]"
+          options={{
+            presentation: "transparentModal",
+            animation: "none",
+            contentStyle: { backgroundColor: "transparent" },
+          }}
+        />
         <Stack.Screen name="story-create" />
         <Stack.Screen name="post-create" />
         <Stack.Screen name="goal-setup" />
