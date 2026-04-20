@@ -26,6 +26,44 @@ export type AIRoadmapRequest = {
   setbacks: string;
 };
 
+const buildFallbackRoadmap = (input: AIRoadmapRequest): AIRoadmapResponse => {
+  const safeGoal = input.goal.trim() || "目標達成ロードマップ";
+
+  return {
+    goal: safeGoal,
+    milestones: [
+      {
+        title: "現状把握",
+        description: "目標達成に向けて必要な情報を整理します。",
+        tasks: [
+          {
+            title: "目標を明確化",
+            description: "期限と達成条件を1文で定義する。",
+          },
+          {
+            title: "現状を棚卸し",
+            description: "今できていることと課題を3つずつ書き出す。",
+          },
+        ],
+      },
+      {
+        title: "実行計画",
+        description: "毎週進めるアクションを決めます。",
+        tasks: [
+          {
+            title: "週次タスク作成",
+            description: "1週間単位の実行タスクを設定する。",
+          },
+          {
+            title: "振り返り設定",
+            description: "週末に進捗確認の時間を15分確保する。",
+          },
+        ],
+      },
+    ],
+  };
+};
+
 const generateRoadmapQuery = /* GraphQL */ `
   query GenerateRoadmapWithAI($input: AIRoadmapInput!) {
     generateRoadmapWithAI(input: $input) {
@@ -83,50 +121,55 @@ const normalizeMilestone = (milestone: unknown): AIRoadmapMilestone | null => {
 export async function generateRoadmapFromAI(
   input: AIRoadmapRequest,
 ): Promise<AIRoadmapResponse> {
-  const client = generateClient({ authMode: "userPool" });
+  try {
+    const client = generateClient({ authMode: "userPool" });
 
-  const aiCall = client.graphql({
-    query: generateRoadmapQuery,
-    variables: { input },
-  }) as Promise<{ data?: { generateRoadmapWithAI?: unknown } }>;
+    const aiCall = client.graphql({
+      query: generateRoadmapQuery,
+      variables: { input },
+    }) as Promise<{ data?: { generateRoadmapWithAI?: unknown } }>;
 
-  const response = await Promise.race([
-    aiCall,
-    new Promise<never>((_, reject) => {
-      setTimeout(
-        () =>
-          reject(
-            new Error("AI roadmap generation timed out after 30 seconds."),
-          ),
-        30000,
+    const response = await Promise.race([
+      aiCall,
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () =>
+            reject(
+              new Error("AI roadmap generation timed out after 30 seconds."),
+            ),
+          30000,
+        );
+      }),
+    ]);
+
+    const payload = response?.data?.generateRoadmapWithAI;
+
+    if (!payload || typeof payload !== "object") {
+      throw new Error(
+        "AI response is empty. Verify AppSync Query.generateRoadmapWithAI mapping.",
       );
-    }),
-  ]);
+    }
 
-  const payload = response?.data?.generateRoadmapWithAI;
+    const raw = payload as Partial<AIRoadmapResponse>;
+    const goal = typeof raw.goal === "string" ? raw.goal.trim() : "";
+    const milestones = Array.isArray(raw.milestones)
+      ? raw.milestones
+          .map((item) => normalizeMilestone(item))
+          .filter((item): item is AIRoadmapMilestone => Boolean(item))
+      : [];
 
-  if (!payload || typeof payload !== "object") {
-    throw new Error(
-      "AI response is empty. Verify AppSync Query.generateRoadmapWithAI mapping.",
-    );
+    if (!goal || milestones.length === 0) {
+      throw new Error(
+        "AI response format is invalid. Verify Lambda/AppSync returns goal and milestones[].tasks[].",
+      );
+    }
+
+    return {
+      goal,
+      milestones,
+    };
+  } catch (error) {
+    console.warn("[Roadmap AI] fallback roadmap applied:", error);
+    return buildFallbackRoadmap(input);
   }
-
-  const raw = payload as Partial<AIRoadmapResponse>;
-  const goal = typeof raw.goal === "string" ? raw.goal.trim() : "";
-  const milestones = Array.isArray(raw.milestones)
-    ? raw.milestones
-        .map((item) => normalizeMilestone(item))
-        .filter((item): item is AIRoadmapMilestone => Boolean(item))
-    : [];
-
-  if (!goal || milestones.length === 0) {
-    throw new Error(
-      "AI response format is invalid. Verify Lambda/AppSync returns goal and milestones[].tasks[].",
-    );
-  }
-
-  return {
-    goal,
-    milestones,
-  };
 }
