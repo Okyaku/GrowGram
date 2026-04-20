@@ -77,6 +77,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="story-create" />
         <Stack.Screen name="post-create" />
+        <Stack.Screen name="roadmap-overview" />
         <Stack.Screen name="goal-setup" />
         <Stack.Screen name="analysis-guide" />
         <Stack.Screen name="settings" />
