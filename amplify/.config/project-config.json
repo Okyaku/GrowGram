@@ -1,17 +1,12 @@
 {
-  "providers": [
-    "awscloudformation"
-  ],
-  "projectName": "GrowGram",
+  "projectName": "growgram",
   "version": "3.1",
   "frontend": "javascript",
   "javascript": {
-    "framework": "react-native",
+    "framework": "none",
     "config": {
-      "SourceDir": "src",
-      "DistributionDir": "/",
-      "BuildCommand": "npm.cmd run-script build",
-      "StartCommand": "npm.cmd run-script start"
+      "SourceDir": "amplify-codegen-temp"
     }
-  }
+  },
+  "providers": ["awscloudformation"]
 }

@@ -973,16 +973,6 @@ export const RoadmapProvider: React.FC<{ children: React.ReactNode }> = ({
           ? error.message
           : "AIロードマップ生成に失敗しました。";
       setLastGenerateError(errorMessage);
-
-      setNotifications((prev) => [
-        {
-          id: `n-ai-fail-${Date.now()}`,
-          message: "AI生成に失敗しました。手動モードで作成してください。",
-          time: nowText(),
-        },
-        ...prev,
-      ]);
-
       return { success: false };
     } finally {
       setIsGeneratingRoadmap(false);
