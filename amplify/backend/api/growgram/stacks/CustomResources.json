@@ -58,13 +58,9 @@
             {
               "Effect": "Allow",
               "Principal": {
-                "Service": [
-                  "lambda.amazonaws.com"
-                ]
+                "Service": ["lambda.amazonaws.com"]
               },
-              "Action": [
-                "sts:AssumeRole"
-              ]
+              "Action": ["sts:AssumeRole"]
             }
           ]
         },
@@ -85,9 +81,7 @@
                 },
                 {
                   "Effect": "Allow",
-                  "Action": [
-                    "bedrock:InvokeModel"
-                  ],
+                  "Action": ["bedrock:InvokeModel"],
                   "Resource": [
                     {
                       "Fn::Sub": "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockModelId}"
@@ -137,10 +131,7 @@
         },
         "Handler": "index.handler",
         "Role": {
-          "Fn::GetAtt": [
-            "AIRoadmapLambdaExecutionRole",
-            "Arn"
-          ]
+          "Fn::GetAtt": ["AIRoadmapLambdaExecutionRole", "Arn"]
         },
         "Runtime": "python3.12",
         "Timeout": 30,
@@ -183,13 +174,9 @@
             {
               "Effect": "Allow",
               "Principal": {
-                "Service": [
-                  "appsync.amazonaws.com"
-                ]
+                "Service": ["appsync.amazonaws.com"]
               },
-              "Action": [
-                "sts:AssumeRole"
-              ]
+              "Action": ["sts:AssumeRole"]
             }
           ]
         },
@@ -201,14 +188,9 @@
               "Statement": [
                 {
                   "Effect": "Allow",
-                  "Action": [
-                    "lambda:InvokeFunction"
-                  ],
+                  "Action": ["lambda:InvokeFunction"],
                   "Resource": {
-                    "Fn::GetAtt": [
-                      "AIRoadmapLambdaFunction",
-                      "Arn"
-                    ]
+                    "Fn::GetAtt": ["AIRoadmapLambdaFunction", "Arn"]
                   }
                 }
               ]
@@ -239,17 +221,11 @@
         "Name": "AIRoadmapLambdaDS",
         "Type": "AWS_LAMBDA",
         "ServiceRoleArn": {
-          "Fn::GetAtt": [
-            "AppSyncInvokeAIRoadmapLambdaRole",
-            "Arn"
-          ]
+          "Fn::GetAtt": ["AppSyncInvokeAIRoadmapLambdaRole", "Arn"]
         },
         "LambdaConfig": {
           "LambdaFunctionArn": {
-            "Fn::GetAtt": [
-              "AIRoadmapLambdaFunction",
-              "Arn"
-            ]
+            "Fn::GetAtt": ["AIRoadmapLambdaFunction", "Arn"]
           }
         }
       }
@@ -263,10 +239,7 @@
         "TypeName": "Query",
         "FieldName": "generateRoadmapWithAI",
         "DataSourceName": {
-          "Fn::GetAtt": [
-            "AIRoadmapLambdaDataSource",
-            "Name"
-          ]
+          "Fn::GetAtt": ["AIRoadmapLambdaDataSource", "Name"]
         },
         "RequestMappingTemplate": "{\n  \"version\" : \"2018-05-29\",\n  \"operation\" : \"Invoke\",\n  \"payload\" : {\n    \"arguments\": $util.toJson($ctx.arguments),\n    \"identity\": $util.toJson($ctx.identity)\n  }\n}",
         "ResponseMappingTemplate": "#if($ctx.error)\n  $util.error($ctx.error.message, $ctx.error.type)\n#end\n$util.toJson($ctx.result)"
@@ -287,10 +260,7 @@
       ]
     },
     "AlwaysFalse": {
-      "Fn::Equals": [
-        "true",
-        "false"
-      ]
+      "Fn::Equals": ["true", "false"]
     }
   },
   "Outputs": {
