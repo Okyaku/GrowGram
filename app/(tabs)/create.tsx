@@ -1603,7 +1603,6 @@ export default function CreateScreen() {
               </View>
               <View>
                 <Text style={styles.brandTitle}>GROWGRAM</Text>
-                <Text style={styles.brandSub}>LIVE SYNCING... 0x4F2A</Text>
               </View>
             </View>
             <View style={styles.topRightActions}>
@@ -2899,13 +2898,6 @@ const createStyles = () =>
       letterSpacing: 3,
       fontWeight: "400",
       color: "#222222",
-    },
-    brandSub: {
-      marginTop: 1,
-      color: "#9A8E8A",
-      fontSize: 10,
-      letterSpacing: 1.2,
-      fontWeight: "500",
     },
     topRightActions: {
       flexDirection: "row",

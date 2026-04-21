@@ -168,7 +168,11 @@ export default function RoadmapOverviewScreen() {
           <Text style={styles.goalTitle}>{goal}</Text>
         </View>
 
-        <View style={[styles.timelineWrap, timelineDensityStyle]}>
+        <ScrollView
+          style={styles.timelineScroll}
+          contentContainerStyle={[styles.timelineWrap, timelineDensityStyle]}
+          showsVerticalScrollIndicator={false}
+        >
           {milestones.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>
@@ -184,13 +188,9 @@ export default function RoadmapOverviewScreen() {
               const statusLabel = statusToLabel(milestone.status);
               const stageLabel = `STAGE ${String(index + 1).padStart(2, "0")}`;
               const expanded = expandedMilestoneId === milestone.id;
-              const rowFlex = expanded ? 4 : 1;
 
               return (
-                <View
-                  key={milestone.id}
-                  style={[styles.timelineRow, { flex: rowFlex }]}
-                >
+                <View key={milestone.id} style={styles.timelineRow}>
                   <View style={styles.markerCol}>
                     <View
                       style={[
@@ -229,35 +229,21 @@ export default function RoadmapOverviewScreen() {
                       </Text>
                     </View>
 
-                    <Text
-                      style={styles.stageTitle}
-                      numberOfLines={2}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.82}
-                    >
+                    <Text style={styles.stageTitle} numberOfLines={2}>
                       {milestone.title}
                     </Text>
 
                     {expanded ? (
-                      <ScrollView
-                        style={styles.stageSubtitleScroll}
-                        contentContainerStyle={
-                          styles.stageSubtitleScrollContent
-                        }
-                        nestedScrollEnabled
-                        showsVerticalScrollIndicator={false}
-                      >
-                        <Text style={styles.stageSubtitle}>
-                          {milestone.subtitle}
-                        </Text>
-                      </ScrollView>
+                      <Text style={styles.stageSubtitle}>
+                        {milestone.subtitle}
+                      </Text>
                     ) : null}
                   </Pressable>
                 </View>
               );
             })
           )}
-        </View>
+        </ScrollView>
       </View>
     </ScreenContainer>
   );
@@ -266,7 +252,6 @@ export default function RoadmapOverviewScreen() {
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 16,
-    paddingTop: 12,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
@@ -301,8 +286,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 18,
-    justifyContent: "space-between",
     gap: 10,
+  },
+  timelineScroll: {
+    flex: 1,
   },
   goalCard: {
     borderRadius: 16,
@@ -326,8 +313,7 @@ const styles = StyleSheet.create({
     color: "#3A2F28",
   },
   timelineWrap: {
-    flex: 1,
-    justifyContent: "space-between",
+    paddingBottom: 8,
   },
   timelineLoose: {
     paddingVertical: 10,
@@ -343,10 +329,9 @@ const styles = StyleSheet.create({
   },
   timelineRow: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "flex-start",
     gap: 10,
-    minHeight: 0,
-    flexShrink: 1,
+    minHeight: 56,
   },
   markerCol: {
     width: 28,
@@ -374,6 +359,7 @@ const styles = StyleSheet.create({
   },
   stageCard: {
     flex: 1,
+    minHeight: 56,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(84, 106, 122, 0.22)",
@@ -381,18 +367,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     justifyContent: "center",
-    flexShrink: 1,
   },
   stageCardExpanded: {
     justifyContent: "flex-start",
-  },
-  stageSubtitleScroll: {
-    flex: 1,
-    marginTop: 6,
-    minHeight: 0,
-  },
-  stageSubtitleScrollContent: {
-    flexGrow: 1,
   },
   stageMetaRow: {
     flexDirection: "row",
