@@ -17,7 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
-import { CustomButton, ScreenContainer } from "../../src/components/common";
+import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
@@ -473,14 +473,8 @@ export default function HomeScreen() {
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
   const scrollY = React.useRef(new Animated.Value(0)).current;
-  const {
-    canCreatePost,
-    postCredits,
-    streakDays,
-    level,
-    totalScore,
-    adjustScore,
-  } = useRoadmap();
+  const { canCreatePost, streakDays, level, totalScore, adjustScore } =
+    useRoadmap();
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
@@ -1768,7 +1762,16 @@ export default function HomeScreen() {
           >
             <View style={styles.headerRow}>
               <View style={styles.brandRow}>
-                <Ionicons name="flash" size={22} color={theme.colors.primary} />
+                <Pressable
+                  style={styles.brandAddButton}
+                  onPress={() =>
+                    router.push(
+                      canCreatePost ? "/post-create" : "/(tabs)/create",
+                    )
+                  }
+                >
+                  <Ionicons name="add" size={18} color={theme.colors.primary} />
+                </Pressable>
                 <Text style={styles.heading}>GROWGRAM</Text>
               </View>
               <View style={styles.headerActions}>
@@ -1843,16 +1846,33 @@ export default function HomeScreen() {
                   )
                 }
               >
-                <View
-                  style={[
-                    styles.storyRing,
-                    story.active && styles.storyRingActive,
-                  ]}
-                >
-                  <Image
-                    source={{ uri: story.image }}
-                    style={styles.storyAvatar}
-                  />
+                <View style={styles.storyRingWrapper}>
+                  <View
+                    style={[
+                      styles.storyRing,
+                      story.active && styles.storyRingActive,
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: story.image }}
+                      style={styles.storyAvatar}
+                    />
+                  </View>
+                  {story.owner === currentOwner && currentOwner.length > 0 ? (
+                    <Pressable
+                      style={styles.storyAddButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        router.push("/story-create");
+                      }}
+                    >
+                      <Ionicons
+                        name="add"
+                        size={12}
+                        color={theme.colors.onPrimary}
+                      />
+                    </Pressable>
+                  ) : null}
                 </View>
                 <Text style={styles.storyName} numberOfLines={1}>
                   {story.userName}
@@ -1860,28 +1880,6 @@ export default function HomeScreen() {
               </Pressable>
             ))}
           </ScrollView>
-
-          <View style={styles.actionRow}>
-            <CustomButton
-              label="ストーリー投稿"
-              onPress={() => router.push("/story-create")}
-              style={styles.actionButton}
-              textStyle={styles.actionButtonText}
-            />
-            <CustomButton
-              label={
-                canCreatePost
-                  ? `通常投稿 (${postCredits})`
-                  : "通常投稿 (LOCKED)"
-              }
-              onPress={() =>
-                router.push(canCreatePost ? "/post-create" : "/(tabs)/create")
-              }
-              variant={canCreatePost ? "outline" : "secondary"}
-              style={styles.actionButton}
-              textStyle={styles.actionButtonText}
-            />
-          </View>
         </View>
 
         {posts.map((post) => {
@@ -2360,6 +2358,16 @@ const createStyles = () =>
       alignItems: "center",
       gap: 8,
     },
+    brandAddButton: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     headerActions: {
       flexDirection: "row",
       alignItems: "center",
@@ -2411,6 +2419,9 @@ const createStyles = () =>
       width: 72,
       alignItems: "center",
     },
+    storyRingWrapper: {
+      position: "relative",
+    },
     storyRing: {
       width: 62,
       height: 62,
@@ -2430,26 +2441,25 @@ const createStyles = () =>
       borderRadius: 10,
       backgroundColor: theme.colors.surface,
     },
+    storyAddButton: {
+      position: "absolute",
+      right: -2,
+      bottom: -2,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: theme.colors.primary,
+      borderWidth: 2,
+      borderColor: theme.colors.white,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     storyName: {
       marginTop: 6,
       color: theme.colors.text,
       fontSize: 11,
       fontWeight: "800",
       maxWidth: 68,
-    },
-    actionRow: {
-      flexDirection: "row",
-      gap: theme.spacing.sm,
-      marginBottom: theme.spacing.md,
-    },
-    actionButton: {
-      flex: 1,
-      minHeight: 48,
-      paddingHorizontal: 10,
-    },
-    actionButtonText: {
-      fontSize: 14,
-      textAlign: "center",
     },
     statLabel: {
       color: theme.colors.textSub,
