@@ -1044,6 +1044,25 @@ export default function CreateScreen() {
     });
   }, [getSegmentBounds]);
 
+  const onOpenRoadmapOverview = React.useCallback(() => {
+    const overviewMilestones = milestones.map((milestone) => ({
+      id: milestone.id,
+      title: milestone.title,
+      subtitle: milestone.subtitle,
+      status: milestone.status,
+      roadmapId: milestone.roadmapId,
+      roadmapGoal: milestone.roadmapGoal,
+    }));
+
+    router.push({
+      pathname: "/roadmap-overview",
+      params: {
+        goal: activeRoadmap.goal,
+        milestonesJson: JSON.stringify(overviewMilestones),
+      },
+    });
+  }, [activeRoadmap.goal, milestones, router]);
+
   React.useEffect(() => {
     setShortTermGoals((prev) =>
       prev.map((step, index) => ({
@@ -1584,10 +1603,16 @@ export default function CreateScreen() {
               </View>
               <View>
                 <Text style={styles.brandTitle}>GROWGRAM</Text>
-                <Text style={styles.brandSub}>LIVE SYNCING... 0x4F2A</Text>
               </View>
             </View>
             <View style={styles.topRightActions}>
+              <Pressable
+                style={styles.overviewButton}
+                onPress={onOpenRoadmapOverview}
+              >
+                <Ionicons name="map-outline" size={14} color="#2F3C45" />
+                <Text style={styles.overviewButtonText}>全体を見る</Text>
+              </Pressable>
               <Pressable
                 style={styles.avatarButton}
                 onPress={onAutoAlignShortTermGoals}
@@ -2874,16 +2899,27 @@ const createStyles = () =>
       fontWeight: "400",
       color: "#222222",
     },
-    brandSub: {
-      marginTop: 1,
-      color: "#9A8E8A",
-      fontSize: 10,
-      letterSpacing: 1.2,
-      fontWeight: "500",
-    },
     topRightActions: {
       flexDirection: "row",
       alignItems: "center",
+      gap: 8,
+    },
+    overviewButton: {
+      height: 42,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: 12,
+      backgroundColor: "#EEF3F8",
+      borderWidth: 1,
+      borderColor: "rgba(72,87,105,0.24)",
+    },
+    overviewButtonText: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: "#2F3C45",
     },
     avatarButton: {
       width: 42,

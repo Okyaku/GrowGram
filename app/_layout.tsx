@@ -77,12 +77,15 @@ export default function RootLayout() {
         />
         <Stack.Screen name="story-create" />
         <Stack.Screen name="post-create" />
+        <Stack.Screen name="roadmap-overview" />
         <Stack.Screen name="goal-setup" />
         <Stack.Screen name="analysis-guide" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="legal" />
+        <Stack.Screen name="terms" />
+        <Stack.Screen name="privacy-policy" />
       </Stack>
     </RoadmapProvider>
   );
