@@ -34,9 +34,14 @@ const settingMenus = [
     icon: "shield-checkmark" as const,
   },
   {
-    label: "保存・アーカイブ",
-    route: "/saved-archived-posts" as const,
+    label: "保存",
+    route: "/saved-archived-posts?tab=saved" as const,
     icon: "bookmark" as const,
+  },
+  {
+    label: "アーカイブ",
+    route: "/saved-archived-posts?tab=archived" as const,
+    icon: "archive" as const,
   },
 ];
 
@@ -119,7 +124,7 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.title}>設定</Text>
-        <View style={styles.iconButton} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <View style={styles.card}>
@@ -277,5 +282,9 @@ const createStyles = () =>
       color: theme.colors.textSub,
       fontSize: 12,
       fontWeight: "600",
+    },
+    headerSpacer: {
+      width: 40,
+      height: 40,
     },
   });

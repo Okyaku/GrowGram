@@ -11,9 +11,10 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
+import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../src/components/common";
 import { Text } from "../src/components/common/Typography";
@@ -24,6 +25,7 @@ const client = generateClient({ authMode: "userPool" });
 interface Post {
   id: string;
   content: string;
+  owner?: string | null;
   title?: string;
   imageKeys?: string[];
   imageUrls?: string[];
@@ -35,6 +37,7 @@ interface Post {
 }
 
 interface PostSave {
+  owner?: string | null;
   postId: string;
   post: Post;
 }
@@ -44,16 +47,45 @@ interface TabType {
   label: string;
 }
 
+interface ArchiveContentTabType {
+  key: "posts" | "stories";
+  label: string;
+}
+
+interface CloudStory {
+  id: string;
+  owner?: string | null;
+  imageKey: string;
+  caption?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+interface ArchivedStory {
+  id: string;
+  caption: string | null;
+  imageUrl: string;
+  createdAt: string;
+}
+
 const tabs: TabType[] = [
   { key: "saved", label: "保存した投稿" },
   { key: "archived", label: "アーカイブ" },
 ];
+
+const archiveContentTabs: ArchiveContentTabType[] = [
+  { key: "posts", label: "投稿" },
+  { key: "stories", label: "ストーリー" },
+];
+
+const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 
 const listPostSavesQuery = /* GraphQL */ `
   query ListPostSaves {
     listPostSaves(limit: 1000) {
       items {
         id
+        owner
         postId
         createdAt
       }
@@ -66,6 +98,7 @@ const getPostQuery = /* GraphQL */ `
     getPost(id: $id) {
       id
       content
+      owner
       title
       imageKeys
       passion
@@ -83,6 +116,7 @@ const listPostsQuery = /* GraphQL */ `
       items {
         id
         content
+        owner
         title
         imageKeys
         passion
@@ -95,12 +129,52 @@ const listPostsQuery = /* GraphQL */ `
   }
 `;
 
+const listStoriesQuery = /* GraphQL */ `
+  query ListStories {
+    listStories(limit: 1000) {
+      items {
+        id
+        owner
+        imageKey
+        caption
+        createdAt
+        updatedAt
+      }
+    }
+  }
+`;
+
+const isStoryArchived = (story: CloudStory) => {
+  if (!story.createdAt) {
+    return false;
+  }
+
+  const createdAtMs = new Date(story.createdAt).getTime();
+  if (Number.isNaN(createdAtMs)) {
+    return false;
+  }
+
+  return Date.now() - createdAtMs >= STORY_EXPIRATION_MS;
+};
+
 export default function SavedArchivedPostsScreen() {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"saved" | "archived">("saved");
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const rawTab = params.tab;
+  const normalizedTab = Array.isArray(rawTab) ? rawTab[0] : rawTab;
+  const forcedTab: "saved" | "archived" | null =
+    normalizedTab === "saved" || normalizedTab === "archived"
+      ? normalizedTab
+      : null;
+  const initialTab: "saved" | "archived" = forcedTab ?? "saved";
+  const [activeTab, setActiveTab] = useState<"saved" | "archived">(initialTab);
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
   const [archivedPosts, setArchivedPosts] = useState<Post[]>([]);
+  const [archivedStories, setArchivedStories] = useState<ArchivedStory[]>([]);
+  const [activeArchiveContentTab, setActiveArchiveContentTab] = useState<
+    "posts" | "stories"
+  >("posts");
   const [loading, setLoading] = useState(true);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
     null,
@@ -110,14 +184,20 @@ export default function SavedArchivedPostsScreen() {
 
   const fetchSavedPosts = useCallback(async () => {
     try {
+      const currentUser = await getCurrentUser();
       const response = (await client.graphql({
         query: listPostSavesQuery,
       })) as any;
 
-      const saves = response.data?.listPostSaves?.items || [];
+      const saves =
+        (response.data?.listPostSaves?.items as PostSave[] | undefined) || [];
       const postsData: Post[] = [];
 
       for (const save of saves) {
+        if (save.owner !== currentUser.userId) {
+          continue;
+        }
+
         const postResponse = (await client.graphql({
           query: getPostQuery,
           variables: { id: save.postId },
@@ -149,12 +229,16 @@ export default function SavedArchivedPostsScreen() {
 
   const fetchArchivedPosts = useCallback(async () => {
     try {
+      const currentUser = await getCurrentUser();
       const response = (await client.graphql({
         query: listPostsQuery,
       })) as any;
 
       const posts = response.data?.listPosts?.items || [];
-      const archived = posts.filter((post: Post) => post.isArchived === true);
+      const archived = posts.filter(
+        (post: Post) =>
+          post.isArchived === true && post.owner === currentUser.userId,
+      );
 
       // 各投稿の画像URLを解決
       const postsWithUrls = await Promise.all(
@@ -180,15 +264,61 @@ export default function SavedArchivedPostsScreen() {
     }
   }, []);
 
+  const fetchArchivedStories = useCallback(async () => {
+    try {
+      const currentUser = await getCurrentUser();
+      const response = (await client.graphql({
+        query: listStoriesQuery,
+      })) as any;
+
+      const stories =
+        (response.data?.listStories?.items as CloudStory[] | undefined) || [];
+      const archived = stories.filter(
+        (story) =>
+          story.owner === currentUser.userId &&
+          Boolean(story.imageKey) &&
+          isStoryArchived(story),
+      );
+
+      const storiesWithUrls = await Promise.all(
+        archived.map(async (story) => {
+          try {
+            const resolved = await getUrl({ path: story.imageKey });
+            return {
+              id: story.id,
+              caption: story.caption ?? null,
+              imageUrl: resolved.url.toString(),
+              createdAt: story.createdAt || new Date().toISOString(),
+            } satisfies ArchivedStory;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setArchivedStories(
+        storiesWithUrls.filter(
+          (story): story is ArchivedStory => story !== null,
+        ),
+      );
+    } catch (error) {
+      console.error("Error fetching archived stories:", error);
+    }
+  }, []);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      await Promise.all([fetchSavedPosts(), fetchArchivedPosts()]);
+      await Promise.all([
+        fetchSavedPosts(),
+        fetchArchivedPosts(),
+        fetchArchivedStories(),
+      ]);
       setLoading(false);
     };
 
     fetchData();
-  }, [fetchSavedPosts, fetchArchivedPosts]);
+  }, [fetchSavedPosts, fetchArchivedPosts, fetchArchivedStories]);
 
   useEffect(() => {
     if (selectedImageIndex !== null && imageScrollRef.current) {
@@ -198,6 +328,16 @@ export default function SavedArchivedPostsScreen() {
       });
     }
   }, [selectedImageIndex]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab !== "archived") {
+      setActiveArchiveContentTab("posts");
+    }
+  }, [activeTab]);
 
   const displayPosts = activeTab === "saved" ? savedPosts : archivedPosts;
 
@@ -216,8 +356,8 @@ export default function SavedArchivedPostsScreen() {
         style={styles.postCard}
         onPress={() =>
           router.push({
-            pathname: "/story/[storyId]",
-            params: { storyId: item.id },
+            pathname: "/post/[postId]",
+            params: { postId: item.id },
           })
         }
       >
@@ -280,109 +420,196 @@ export default function SavedArchivedPostsScreen() {
     );
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={styles.iconButton}>
-            <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
-          </Pressable>
-          <Text style={styles.title}>
-            {activeTab === "saved" ? "保存した投稿" : "アーカイブ"}
+  const renderArchivedStoryItem = ({ item }: { item: ArchivedStory }) => {
+    return (
+      <View style={styles.postCard}>
+        <View style={styles.postHeader}>
+          <Text style={styles.postTitle} numberOfLines={2}>
+            {item.caption?.trim() || "ストーリー"}
           </Text>
-          <View style={styles.iconButton} />
+          <Text style={styles.postDate}>
+            {new Date(item.createdAt).toLocaleDateString("ja-JP")}
+          </Text>
         </View>
 
-        <View style={styles.tabContainer}>
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab.key}
-              style={[styles.tab, activeTab === tab.key && styles.activeTab]}
-              onPress={() => setActiveTab(tab.key)}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === tab.key && styles.activeTabText,
-                ]}
-              >
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={styles.imageContainer}>
+          <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
         </View>
       </View>
+    );
+  };
 
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
-      ) : displayPosts.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons
-            name={activeTab === "saved" ? "bookmark" : "archive"}
-            size={48}
-            color={theme.colors.textSub}
-          />
-          <Text style={styles.emptyText}>
-            {activeTab === "saved"
-              ? "保存した投稿はありません"
-              : "アーカイブはありません"}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={displayPosts}
-          renderItem={renderPostItem}
-          keyExtractor={(item, index) => `${activeTab}-${item.id}-${index}`}
-          scrollEnabled={true}
-          style={styles.listContainer}
-          contentContainerStyle={styles.listContent}
-        />
-      )}
+  const showingArchivedStories =
+    activeTab === "archived" && activeArchiveContentTab === "stories";
+  const hasDisplayPosts = displayPosts.length > 0;
+  const hasDisplayStories = archivedStories.length > 0;
 
-      {/* Image Viewer Modal */}
-      <Modal
-        visible={selectedImageIndex !== null}
-        transparent
-        animationType="fade"
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            onPress={() => setSelectedImageIndex(null)}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={24} color="white" />
-          </Pressable>
+  return (
+    <ScreenContainer
+      scrollable={false}
+      padded={false}
+      backgroundColor={theme.colors.surface}
+    >
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <Pressable onPress={() => router.back()} style={styles.iconButton}>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={theme.colors.text}
+              />
+            </Pressable>
+            <Text style={styles.title}>
+              {activeTab === "saved" ? "保存した投稿" : "アーカイブ"}
+            </Text>
+            <View style={styles.headerSpacer} />
+          </View>
 
-          {selectedImages.length > 0 && selectedImageIndex !== null && (
-            <ScrollView
-              ref={imageScrollRef}
-              horizontal
-              pagingEnabled
-              scrollEventThrottle={16}
-              style={styles.imageScroll}
-            >
-              {selectedImages.map((imageUri, index) => (
-                <View key={index} style={styles.imageFullscreen}>
-                  <Image
-                    source={{ uri: imageUri }}
-                    style={styles.imageFullscreenImage}
-                  />
-                </View>
+          {!forcedTab && (
+            <View style={styles.tabContainer}>
+              {tabs.map((tab) => (
+                <Pressable
+                  key={tab.key}
+                  style={[
+                    styles.tab,
+                    activeTab === tab.key && styles.activeTab,
+                  ]}
+                  onPress={() => setActiveTab(tab.key)}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      activeTab === tab.key && styles.activeTabText,
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
               ))}
-            </ScrollView>
+            </View>
           )}
 
-          <View style={styles.imageIndicator}>
-            <Text style={styles.imageIndicatorText}>
-              {selectedImageIndex !== null ? selectedImageIndex + 1 : 0} /{" "}
-              {selectedImages.length}
+          {activeTab === "archived" && (
+            <View style={styles.archiveTabContainer}>
+              {archiveContentTabs.map((tab) => (
+                <Pressable
+                  key={tab.key}
+                  style={[
+                    styles.archiveTab,
+                    activeArchiveContentTab === tab.key &&
+                      styles.archiveActiveTab,
+                  ]}
+                  onPress={() => setActiveArchiveContentTab(tab.key)}
+                >
+                  <Text
+                    style={[
+                      styles.archiveTabText,
+                      activeArchiveContentTab === tab.key &&
+                        styles.archiveActiveTabText,
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        ) : showingArchivedStories ? (
+          hasDisplayStories ? (
+            <FlatList
+              data={archivedStories}
+              renderItem={renderArchivedStoryItem}
+              keyExtractor={(item) => `archived-story-${item.id}`}
+              scrollEnabled={true}
+              style={styles.listContainer}
+              contentContainerStyle={styles.listContent}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons
+                name="time-outline"
+                size={48}
+                color={theme.colors.textSub}
+              />
+              <Text style={styles.emptyText}>
+                アーカイブ済みストーリーはありません
+              </Text>
+            </View>
+          )
+        ) : !hasDisplayPosts ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons
+              name={activeTab === "saved" ? "bookmark" : "archive"}
+              size={48}
+              color={theme.colors.textSub}
+            />
+            <Text style={styles.emptyText}>
+              {activeTab === "saved"
+                ? "保存した投稿はありません"
+                : "アーカイブはありません"}
             </Text>
           </View>
-        </View>
-      </Modal>
-    </View>
+        ) : (
+          <FlatList
+            data={displayPosts}
+            renderItem={renderPostItem}
+            keyExtractor={(item, index) => `${activeTab}-${item.id}-${index}`}
+            scrollEnabled={true}
+            style={styles.listContainer}
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+
+        {/* Image Viewer Modal */}
+        <Modal
+          visible={selectedImageIndex !== null}
+          transparent
+          animationType="fade"
+        >
+          <View style={styles.modalOverlay}>
+            <Pressable
+              onPress={() => setSelectedImageIndex(null)}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={24} color="white" />
+            </Pressable>
+
+            {selectedImages.length > 0 && selectedImageIndex !== null && (
+              <ScrollView
+                ref={imageScrollRef}
+                horizontal
+                pagingEnabled
+                scrollEventThrottle={16}
+                style={styles.imageScroll}
+              >
+                {selectedImages.map((imageUri, index) => (
+                  <View key={index} style={styles.imageFullscreen}>
+                    <Image
+                      source={{ uri: imageUri }}
+                      style={styles.imageFullscreenImage}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.imageIndicator}>
+              <Text style={styles.imageIndicatorText}>
+                {selectedImageIndex !== null ? selectedImageIndex + 1 : 0} /{" "}
+                {selectedImages.length}
+              </Text>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </ScreenContainer>
   );
 }
 
@@ -410,10 +637,42 @@ const createStyles = () =>
       justifyContent: "center",
       backgroundColor: theme.colors.white,
     },
+    archiveTabContainer: {
+      flexDirection: "row",
+      alignSelf: "center",
+      backgroundColor: theme.colors.white,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.xs,
+      marginBottom: theme.spacing.md,
+      ...theme.shadows.soft,
+    },
+    archiveTab: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.xs,
+      borderRadius: theme.radius.md,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    archiveActiveTab: {
+      backgroundColor: theme.colors.primary,
+    },
+    archiveTabText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: theme.colors.textSub,
+    },
+    archiveActiveTabText: {
+      color: theme.colors.white,
+    },
+    headerSpacer: {
+      width: 40,
+      height: 40,
+    },
     title: {
       color: theme.colors.text,
       fontSize: 20,
       fontWeight: "900",
+      textAlign: "center",
     },
     tabContainer: {
       flexDirection: "row",
