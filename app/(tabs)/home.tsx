@@ -1774,6 +1774,10 @@ export default function HomeScreen() {
                 </Pressable>
                 <Text style={styles.heading}>GROWGRAM</Text>
               </View>
+              <View>
+                <Text style={styles.statLabel}>継続日数</Text>
+                <Text style={styles.statValue}>{streakDays}日</Text>
+              </View>
               <View style={styles.headerActions}>
                 <Pressable
                   style={styles.headerIconButton}
@@ -1802,23 +1806,6 @@ export default function HomeScreen() {
                     color={theme.colors.textSub}
                   />
                 </Pressable>
-              </View>
-            </View>
-
-            <View style={styles.statsRow}>
-              <View>
-                <Text style={styles.statLabel}>継続日数</Text>
-                <Text style={styles.statValue}>{streakDays}日</Text>
-              </View>
-              <View>
-                <Text style={styles.statLabel}>現在のレベル</Text>
-                <Text style={styles.statValueDark}>Lv.{level}</Text>
-              </View>
-              <View>
-                <Text style={styles.statLabel}>獲得スコア</Text>
-                <Text style={styles.statValue}>
-                  {totalScore.toLocaleString()} pts
-                </Text>
               </View>
             </View>
           </Animated.View>
