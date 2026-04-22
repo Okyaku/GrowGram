@@ -356,8 +356,8 @@ export default function SavedArchivedPostsScreen() {
         style={styles.postCard}
         onPress={() =>
           router.push({
-            pathname: "/story/[storyId]",
-            params: { storyId: item.id },
+            pathname: "/post/[postId]",
+            params: { postId: item.id },
           })
         }
       >
