@@ -576,6 +576,7 @@ export const onCreateProfile = /* GraphQL */ `
     onCreateProfile(filter: $filter, owner: $owner) {
       id
       username
+      displayName
       bio
       iconImageKey
       createdAt
@@ -593,6 +594,7 @@ export const onUpdateProfile = /* GraphQL */ `
     onUpdateProfile(filter: $filter, owner: $owner) {
       id
       username
+      displayName
       bio
       iconImageKey
       createdAt
@@ -610,6 +612,7 @@ export const onDeleteProfile = /* GraphQL */ `
     onDeleteProfile(filter: $filter, owner: $owner) {
       id
       username
+      displayName
       bio
       iconImageKey
       createdAt

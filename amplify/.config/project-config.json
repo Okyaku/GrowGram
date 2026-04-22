@@ -8,5 +8,7 @@
       "SourceDir": "amplify-codegen-temp"
     }
   },
-  "providers": ["awscloudformation"]
+  "providers": [
+    "awscloudformation"
+  ]
 }

@@ -1,8 +1,10 @@
 import React from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
+import { generateClient } from "aws-amplify/api";
 import {
   confirmSignUp,
+  getCurrentUser,
   resendSignUpCode,
   signIn,
   signUp,
@@ -14,6 +16,12 @@ import {
 } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
 import { theme } from "../../src/theme";
+
+const client = generateClient({ authMode: "userPool" });
+
+const USERNAME_PATTERN = /^[a-z0-9_]+$/;
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
 
 const getAuthErrorMessage = (error: unknown) => {
   if (typeof error === "object" && error !== null && "name" in error) {
@@ -75,10 +83,21 @@ const getAuthErrorDebugText = (error: unknown) => {
   return typeof error === "string" ? error : "unknown";
 };
 
+const createProfileMutation = /* GraphQL */ `
+  mutation CreateProfile($input: CreateProfileInput!) {
+    createProfile(input: $input) {
+      id
+      username
+      displayName
+    }
+  }
+`;
+
 export default function SignUpScreen() {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
   const [nickname, setNickname] = React.useState("");
+  const [username, setUsername] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
@@ -86,9 +105,27 @@ export default function SignUpScreen() {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [requiresConfirmation, setRequiresConfirmation] = React.useState(false);
 
+  const createInitialProfile = React.useCallback(
+    async (resolvedUsername: string) => {
+      const authUser = await getCurrentUser();
+      await client.graphql({
+        query: createProfileMutation,
+        variables: {
+          input: {
+            id: authUser.userId,
+            username: resolvedUsername,
+            displayName: nickname.trim(),
+          },
+        },
+      });
+    },
+    [nickname],
+  );
+
   const onSignUp = React.useCallback(async () => {
     if (
       !nickname.trim() ||
+      !username.trim() ||
       !email.trim() ||
       !password.trim() ||
       !confirmPassword.trim()
@@ -99,6 +136,20 @@ export default function SignUpScreen() {
 
     if (password !== confirmPassword) {
       Alert.alert("確認エラー", "パスワード確認が一致しません。");
+      return;
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    if (!normalizedUsername) {
+      Alert.alert("入力不足", "ユーザーネームを入力してください。");
+      return;
+    }
+
+    if (!USERNAME_PATTERN.test(normalizedUsername)) {
+      Alert.alert(
+        "入力形式エラー",
+        "ユーザーネームは半角英小文字・数字・アンダースコアのみ入力できます。",
+      );
       return;
     }
 
@@ -124,6 +175,7 @@ export default function SignUpScreen() {
             authFlowType: "USER_PASSWORD_AUTH",
           },
         });
+        await createInitialProfile(normalizedUsername);
         router.replace("/(tabs)/home");
         return;
       }
@@ -145,7 +197,15 @@ export default function SignUpScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [confirmPassword, email, nickname, password, router]);
+  }, [
+    confirmPassword,
+    createInitialProfile,
+    email,
+    nickname,
+    password,
+    router,
+    username,
+  ]);
 
   const onConfirmSignUp = React.useCallback(async () => {
     if (!email.trim() || !confirmationCode.trim()) {
@@ -154,6 +214,7 @@ export default function SignUpScreen() {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
 
     try {
       setIsSubmitting(true);
@@ -170,6 +231,15 @@ export default function SignUpScreen() {
         },
       });
       if (signInResult.isSignedIn) {
+        if (!normalizedUsername || !USERNAME_PATTERN.test(normalizedUsername)) {
+          Alert.alert(
+            "入力不足",
+            "新規登録時に入力したユーザーネームを確認してください。",
+          );
+          return;
+        }
+
+        await createInitialProfile(normalizedUsername);
         router.replace("/(tabs)/home");
         return;
       }
@@ -188,7 +258,14 @@ export default function SignUpScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [confirmationCode, email, password, router]);
+  }, [
+    confirmationCode,
+    createInitialProfile,
+    email,
+    password,
+    router,
+    username,
+  ]);
 
   const onResendCode = React.useCallback(async () => {
     if (!email.trim()) {
@@ -226,6 +303,14 @@ export default function SignUpScreen() {
         placeholder="例: 佐藤健太"
         value={nickname}
         onChangeText={setNickname}
+      />
+      <InputField
+        label="ユーザーネーム"
+        placeholder="例: taro_123"
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={username}
+        onChangeText={(value) => setUsername(value.toLowerCase())}
       />
       <InputField
         label="メールアドレス"
