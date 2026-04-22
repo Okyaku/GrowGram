@@ -203,9 +203,8 @@ export default function MyPageScreen() {
         ).data?.listPosts?.items ?? [];
 
       const normalizedOwnPosts = allPosts
-        .filter(
-          (item): item is CloudPost =>
-            Boolean(item?.id && (item.owner ?? "") === authUser.username),
+        .filter((item): item is CloudPost =>
+          Boolean(item?.id && (item.owner ?? "") === authUser.username),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -217,8 +216,8 @@ export default function MyPageScreen() {
 
       const galleryCandidates = normalizedOwnPosts
         .map((item) => {
-          const keys = (item.imageKeys ?? []).filter(
-            (key): key is string => Boolean(key),
+          const keys = (item.imageKeys ?? []).filter((key): key is string =>
+            Boolean(key),
           );
           const primaryImage = keys[0] ?? item.imageKey ?? null;
           return {
@@ -319,7 +318,11 @@ export default function MyPageScreen() {
           style={styles.headerIconButton}
           onPress={() => router.push("/settings")}
         >
-          <Ionicons name="settings-outline" size={20} color={theme.colors.text} />
+          <Ionicons
+            name="settings-outline"
+            size={20}
+            color={theme.colors.text}
+          />
         </Pressable>
       </View>
 
@@ -332,7 +335,6 @@ export default function MyPageScreen() {
 
         <View style={styles.identityWrap}>
           <Text style={styles.name}>{name}</Text>
-          <Text style={styles.age}>{ageLabel}</Text>
         </View>
 
         <Text style={styles.caption} numberOfLines={2}>
@@ -371,7 +373,11 @@ export default function MyPageScreen() {
 
       {!isLoadingPosts && posts.length === 0 ? (
         <View style={styles.emptyStateWrap}>
-          <Ionicons name="images-outline" size={24} color={theme.colors.textSub} />
+          <Ionicons
+            name="images-outline"
+            size={24}
+            color={theme.colors.textSub}
+          />
           <Text style={styles.emptyStateText}>
             まだ記録がありません。最初の積み上げを投稿しましょう！
           </Text>
