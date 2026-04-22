@@ -1,13 +1,11 @@
 import React from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Keyboard,
   GestureResponderEvent,
   Image,
-  ImageBackground,
   Pressable,
   Platform,
   StyleSheet,
@@ -16,6 +14,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
@@ -55,8 +54,6 @@ const STORY_DURATION_MS = 5000;
 const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 const STORY_CLOSE_SWIPE_THRESHOLD = 80;
 const STORY_VIEWED_STORAGE_KEY = "story-viewed-by-owner-v1";
-const STORY_PLACEHOLDER_URL =
-  "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200";
 const AVATAR_PLACEHOLDER_URL =
   "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200";
 
@@ -208,7 +205,34 @@ export default function StoryViewScreen() {
     () => generateClient({ authMode: "userPool" }),
     [],
   );
-  const { storyId } = useLocalSearchParams<{ storyId: string }>();
+  const params = useLocalSearchParams<{
+    storyId: string | string[];
+    imageUrl?: string | string[];
+    initialIndex?: string | string[];
+  }>();
+  const normalizedStoryId = React.useMemo(() => {
+    const value = params.storyId;
+    if (Array.isArray(value)) {
+      return value[0] ?? "";
+    }
+    return value ?? "";
+  }, [params.storyId]);
+  const normalizedImageUrl = React.useMemo(() => {
+    const value = params.imageUrl;
+    if (Array.isArray(value)) {
+      return value[0] ?? "";
+    }
+    return value ?? "";
+  }, [params.imageUrl]);
+  const normalizedInitialIndex = React.useMemo(() => {
+    const value = params.initialIndex;
+    const raw = Array.isArray(value) ? (value[0] ?? "0") : (value ?? "0");
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) {
+      return 0;
+    }
+    return parsed;
+  }, [params.initialIndex]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>([]);
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -243,6 +267,7 @@ export default function StoryViewScreen() {
   const feedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const openProgress = React.useRef(new Animated.Value(0)).current;
   const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const suppressTapRef = React.useRef(false);
   const story = storyQueue[activeIndex] ?? null;
@@ -263,6 +288,22 @@ export default function StoryViewScreen() {
         extrapolate: "clamp",
       }),
     [dragY],
+  );
+  const openingScale = React.useMemo(
+    () =>
+      openProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.92, 1],
+      }),
+    [openProgress],
+  );
+  const openingOpacity = React.useMemo(
+    () =>
+      openProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.86, 1],
+      }),
+    [openProgress],
   );
   const closeStoryView = React.useCallback(() => {
     router.back();
@@ -339,81 +380,72 @@ export default function StoryViewScreen() {
   );
 
   React.useEffect(() => {
-    if (!storyId) {
+    openProgress.setValue(0);
+    Animated.timing(openProgress, {
+      toValue: 1,
+      duration: 170,
+      useNativeDriver: true,
+    }).start();
+  }, [normalizedStoryId, openProgress]);
+
+  React.useEffect(() => {
+    if (!normalizedStoryId) {
       setIsLoading(false);
       return;
     }
 
+    if (__DEV__) {
+      console.log("[StoryView] route imageUrl:", normalizedImageUrl);
+    }
+
     void (async () => {
       try {
-        setIsLoading(true);
         const storyResponse = await client.graphql({
           query: getStoryQuery,
-          variables: { id: storyId },
+          variables: { id: normalizedStoryId },
         });
         const loadedStory = (
           storyResponse as { data?: { getStory?: CloudStory | null } }
         ).data?.getStory;
 
-        if (!loadedStory) {
+        if (!loadedStory || !isStoryActive(loadedStory)) {
           setStoryQueue([]);
-          return;
-        }
-        if (!isStoryActive(loadedStory)) {
-          setStoryQueue([]);
-          Alert.alert(
-            "期限切れ",
-            "このストーリーは24時間を過ぎたため閲覧できません。",
-            [{ text: "戻る", onPress: () => router.back() }],
-          );
+          setIsLoading(false);
           return;
         }
 
-        const storiesResponse = await client.graphql({
-          query: listStoriesQuery,
-        });
-        const stories =
-          (
-            storiesResponse as {
-              data?: { listStories?: { items?: Array<CloudStory | null> } };
-            }
-          ).data?.listStories?.items ?? [];
+        let resolvedImageUrl =
+          typeof normalizedImageUrl === "string" &&
+          normalizedImageUrl.startsWith("http")
+            ? normalizedImageUrl
+            : "";
 
-        const sameOwnerStories = stories
-          .filter((item): item is CloudStory =>
-            Boolean(
-              item?.id && item.imageKey && item.owner === loadedStory.owner,
-            ),
-          )
-          .filter((item) => isStoryActive(item))
-          .sort((a, b) => {
-            const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return at - bt;
-          });
+        if (!resolvedImageUrl) {
+          try {
+            const resolved = await getUrl({ path: loadedStory.imageKey });
+            resolvedImageUrl = resolved.url.toString();
+          } catch {
+            resolvedImageUrl = "";
+          }
+        }
 
-        const queue =
-          sameOwnerStories.length > 0 ? sameOwnerStories : [loadedStory];
-        const queueWithImage = await Promise.all(
-          queue.map(async (item) => {
-            let resolvedImageUrl = STORY_PLACEHOLDER_URL;
-            try {
-              const resolved = await getUrl({ path: item.imageKey });
-              resolvedImageUrl = resolved.url.toString();
-            } catch {
-              resolvedImageUrl = STORY_PLACEHOLDER_URL;
-            }
+        if (__DEV__) {
+          console.log("[StoryView] resolved imageUrl:", resolvedImageUrl);
+        }
 
-            return {
-              ...item,
-              imageUrl: resolvedImageUrl,
-            } satisfies StoryQueueItem;
-          }),
-        );
+        const queueForMeta: StoryQueueItem[] = [
+          {
+            ...loadedStory,
+            imageUrl: resolvedImageUrl,
+          },
+        ];
 
-        setStoryQueue(queueWithImage);
-        const ownerKey = loadedStory.owner ?? "";
-        const queueIdSet = new Set(queueWithImage.map((item) => item.id));
+        setStoryQueue(queueForMeta);
+        setActiveIndex(Math.max(0, normalizedInitialIndex));
+        setIsLoading(false);
+
+        const ownerKey = queueForMeta[0]?.owner ?? "";
+        const queueIdSet = new Set(queueForMeta.map((item) => item.id));
         const viewedState = await readViewedStoryState();
         const normalizedOwnerViewed = (viewedState[ownerKey] ?? []).filter(
           (id) => queueIdSet.has(id),
@@ -425,19 +457,12 @@ export default function StoryViewScreen() {
         setViewedStoryIdsByOwner(normalizedViewedState);
         void writeViewedStoryState(normalizedViewedState);
 
-        const viewedSet = new Set(normalizedOwnerViewed);
-        const firstUnreadIndex = queueWithImage.findIndex(
-          (item) => !viewedSet.has(item.id),
-        );
-        const firstIndex = firstUnreadIndex >= 0 ? firstUnreadIndex : 0;
-        setActiveIndex(firstIndex);
-
         const currentUser = await getCurrentUser();
         setCurrentUserId(currentUser.userId);
         const username = currentUser.username ?? "";
         setCurrentUsername(username);
 
-        await loadProfileByOwner(loadedStory.owner ?? "");
+        await loadProfileByOwner(ownerKey);
 
         const reactionsResponse = await client.graphql({
           query: listStoryReactionsQuery,
@@ -466,16 +491,20 @@ export default function StoryViewScreen() {
 
         setReactionRecordIdByStory(nextReactionMap);
         setReactionRecordIdByType(
-          nextReactionMap[queueWithImage[firstIndex]?.id ?? ""] ?? {},
+          nextReactionMap[queueForMeta[0]?.id ?? ""] ?? {},
         );
         setProgress(0);
       } catch (error) {
-        console.error("[StoryView] failed to load story:", error);
-      } finally {
-        setIsLoading(false);
+        console.error("[StoryView] failed to load story metadata:", error);
       }
     })();
-  }, [client, loadProfileByOwner, router, storyId]);
+  }, [
+    client,
+    normalizedImageUrl,
+    normalizedInitialIndex,
+    normalizedStoryId,
+    loadProfileByOwner,
+  ]);
 
   React.useEffect(() => {
     if (!story?.id) {
@@ -817,18 +846,7 @@ export default function StoryViewScreen() {
     };
   }, [insets.bottom, keyboardOffset]);
 
-  if (isLoading) {
-    return (
-      <ScreenContainer>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={theme.colors.primary} />
-          <Text style={styles.loadingText}>ストーリーを読み込み中...</Text>
-        </View>
-      </ScreenContainer>
-    );
-  }
-
-  if (!story) {
+  if (!story && !isLoading) {
     return (
       <ScreenContainer>
         <View style={styles.loadingWrap}>
@@ -858,12 +876,29 @@ export default function StoryViewScreen() {
           },
         ]}
       >
-        <ImageBackground
-          source={{ uri: story.imageUrl ?? STORY_PLACEHOLDER_URL }}
-          style={styles.hero}
-          imageStyle={styles.heroImage}
-          resizeMode="contain"
-        >
+        <View style={styles.hero}>
+          <Animated.View
+            style={[
+              styles.heroImageAnimLayer,
+              {
+                opacity: openingOpacity,
+                transform: [{ scale: openingScale }],
+              },
+            ]}
+          >
+            <ExpoImage
+                source={{
+                  uri:
+                    (story?.imageUrl && story.imageUrl.startsWith("http")
+                      ? story.imageUrl
+                    : normalizedImageUrl) || "",
+                }}
+              style={styles.heroImageLayer}
+              contentFit="contain"
+              transition={0}
+              cachePolicy="memory-disk"
+            />
+          </Animated.View>
           <Pressable
             style={styles.heroOverlay}
             onPress={onHeroTap}
@@ -948,7 +983,7 @@ export default function StoryViewScreen() {
               </View>
             ) : null}
           </Pressable>
-        </ImageBackground>
+        </View>
 
         <Animated.View
           style={[
@@ -961,10 +996,10 @@ export default function StoryViewScreen() {
             },
           ]}
         >
-          {story.caption ? (
+          {story?.caption ? (
             <Text style={styles.caption}>{story.caption}</Text>
           ) : null}
-          {isOwnStory ? null : (
+          {!story || isOwnStory ? null : (
             <View style={styles.inputRow}>
               <TextInput
                 value={message}
@@ -1060,24 +1095,29 @@ const createStyles = () =>
   StyleSheet.create({
     modalRoot: {
       flex: 1,
-      backgroundColor: "#000000",
+      backgroundColor: "transparent",
     },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "#000000",
+      backgroundColor: "rgba(0,0,0,0.9)",
     },
     container: {
       flex: 1,
-      backgroundColor: theme.colors.surface,
+      backgroundColor: "transparent",
     },
     hero: {
       width: "100%",
       flex: 1,
       justifyContent: "space-between",
-      backgroundColor: "#111111",
+      backgroundColor: "#000000",
     },
-    heroImage: {
-      resizeMode: "contain",
+    heroImageLayer: {
+      flex: 1,
+      width: "100%",
+      height: "100%",
+    },
+    heroImageAnimLayer: {
+      ...StyleSheet.absoluteFillObject,
     },
     heroOverlay: {
       flex: 1,

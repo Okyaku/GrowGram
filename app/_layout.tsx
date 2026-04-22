@@ -71,7 +71,7 @@ export default function RootLayout() {
           name="story/[storyId]"
           options={{
             presentation: "transparentModal",
-            animation: "none",
+            animation: "fade",
             contentStyle: { backgroundColor: "transparent" },
           }}
         />

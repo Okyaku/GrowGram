@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
@@ -60,6 +61,12 @@ type CloudStoryReaction = {
   owner?: string | null;
   storyId: string;
   reactionType?: string | null;
+};
+
+type CloudFollow = {
+  id: string;
+  followerId: string;
+  followingId: string;
 };
 
 type CloudLike = {
@@ -144,8 +151,24 @@ type StoryItem = {
   id: string;
   userName: string;
   image: string;
+  resolvedImageUrl: string;
   active: boolean;
   owner: string;
+};
+
+type StoryQueueParamItem = {
+  id: string;
+  owner?: string | null;
+  imageKey: string;
+  caption?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  imageUrl: string;
+};
+
+type StoryStartItem = {
+  storyId: string;
+  imageUrl: string;
 };
 
 const utf8Bytes = (value: string): Uint8Array => {
@@ -290,6 +313,18 @@ const listPostSavesQuery = /* GraphQL */ `
         id
         owner
         postId
+      }
+    }
+  }
+`;
+
+const listFollowsQuery = /* GraphQL */ `
+  query ListFollows {
+    listFollows(limit: 2000) {
+      items {
+        id
+        followerId
+        followingId
       }
     }
   }
@@ -480,6 +515,9 @@ export default function HomeScreen() {
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
+  const [storyStartByOwner, setStoryStartByOwner] = React.useState<
+    Record<string, StoryStartItem>
+  >({});
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [currentUserId, setCurrentUserId] = React.useState("");
   const [unreadChatCount, setUnreadChatCount] = React.useState(0);
@@ -628,6 +666,7 @@ export default function HomeScreen() {
       const [
         postsResponse,
         profilesResponse,
+        followsResponse,
         likesResponse,
         savesResponse,
         storiesResponse,
@@ -639,6 +678,7 @@ export default function HomeScreen() {
       ] = await Promise.all([
         client.graphql({ query: listPostsQuery }),
         client.graphql({ query: listProfilesQuery }),
+        client.graphql({ query: listFollowsQuery }),
         client.graphql({ query: listPostLikesQuery }),
         client.graphql({ query: listPostSavesQuery }),
         client.graphql({ query: listStoriesQuery }),
@@ -667,6 +707,12 @@ export default function HomeScreen() {
             data?: { listPostLikes?: { items?: Array<CloudLike | null> } };
           }
         ).data?.listPostLikes?.items ?? [];
+      const followItems =
+        (
+          followsResponse as {
+            data?: { listFollows?: { items?: Array<CloudFollow | null> } };
+          }
+        ).data?.listFollows?.items ?? [];
       const saveItems =
         (
           savesResponse as {
@@ -745,6 +791,49 @@ export default function HomeScreen() {
       const profileByOwner = new Map(
         profileWithAvatar.map((profile) => [profile.owner, profile]),
       );
+      const profileById = new Map(
+        profileWithAvatar.map((profile) => [profile.id, profile]),
+      );
+      const isMyFollowRecord = (followerId: string) => {
+        if (!followerId) {
+          return false;
+        }
+        if (followerId === me || followerId === owner) {
+          return true;
+        }
+        const normalizedFollower = normalizeOwner(followerId);
+        return Boolean(owner && normalizedFollower === owner);
+      };
+
+      const myFollowItems = followItems
+        .filter((item): item is CloudFollow =>
+          Boolean(item?.id && item.followerId && item.followingId),
+        )
+        .filter((item) => isMyFollowRecord(item.followerId));
+
+      // Follow.followingId may store either owner or profile id depending on creation flow.
+      const visibleStoryOwners = new Set<string>();
+      if (owner) {
+        visibleStoryOwners.add(owner);
+      }
+      myFollowItems.forEach((item) => {
+        const followingId = item.followingId;
+        if (!followingId) {
+          return;
+        }
+
+        visibleStoryOwners.add(followingId);
+        const normalizedFollowing = normalizeOwner(followingId);
+        if (normalizedFollowing) {
+          visibleStoryOwners.add(normalizedFollowing);
+        }
+
+        const followedProfile = profileById.get(followingId);
+        if (followedProfile?.owner) {
+          visibleStoryOwners.add(followedProfile.owner);
+        }
+      });
+
       const usernameToProfileId: Record<string, string> = {};
       profileItems
         .filter((item): item is CloudProfile =>
@@ -1043,11 +1132,22 @@ export default function HomeScreen() {
         setPosts(fallbackPosts);
       }
 
-      const storyByOwner = new Map<string, CloudStory>();
-      storyItems
+      const visibleStories = storyItems
         .filter((item): item is CloudStory =>
           Boolean(item?.id && item.imageKey),
         )
+        .filter((item) => {
+          const storyOwner = item.owner ?? "";
+          if (!storyOwner) {
+            return false;
+          }
+          const normalizedStoryOwner = normalizeOwner(storyOwner);
+          return (
+            isOwnedByMe(storyOwner) ||
+            visibleStoryOwners.has(storyOwner) ||
+            visibleStoryOwners.has(normalizedStoryOwner)
+          );
+        })
         .filter((item) => {
           if (!item.createdAt) {
             return true;
@@ -1057,9 +1157,55 @@ export default function HomeScreen() {
             return true;
           }
           return Date.now() - createdAtMs < 24 * 60 * 60 * 1000;
-        })
-        .forEach((item) => {
+        });
+
+      const resolvedStories = await Promise.all(
+        visibleStories.map(async (item) => {
+          let resolvedImageUrl = "";
+          try {
+            const resolved = await getUrl({ path: item.imageKey });
+            resolvedImageUrl = resolved.url.toString();
+          } catch {
+            resolvedImageUrl = "";
+          }
+          return {
+            ...item,
+            imageUrl: resolvedImageUrl,
+          } satisfies StoryQueueParamItem;
+        }),
+      );
+
+      const readyStories = resolvedStories.filter(
+        (item): item is StoryQueueParamItem =>
+          Boolean(item.imageUrl && item.imageUrl.startsWith("http")),
+      );
+
+      const storyQueueByOwner = new Map<string, StoryQueueParamItem[]>();
+      readyStories.forEach((item) => {
+        const storyOwner = item.owner ?? "";
+        if (!storyOwner) {
+          return;
+        }
+        const current = storyQueueByOwner.get(storyOwner) ?? [];
+        current.push(item);
+        storyQueueByOwner.set(storyOwner, current);
+      });
+
+      storyQueueByOwner.forEach((queue, storyOwner) => {
+        queue.sort((a, b) => {
+          const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return at - bt;
+        });
+        storyQueueByOwner.set(storyOwner, queue);
+      });
+
+      const storyByOwner = new Map<string, StoryQueueParamItem>();
+      readyStories.forEach((item) => {
           const storyOwner = item.owner ?? "";
+          if (!storyOwner) {
+            return;
+          }
           const current = storyByOwner.get(storyOwner);
           const currentTime = current?.createdAt
             ? new Date(current.createdAt).getTime()
@@ -1072,17 +1218,7 @@ export default function HomeScreen() {
           }
         });
 
-      const storyList = await Promise.all(
-        Array.from(storyByOwner.values()).map(async (story) => {
-          let imageUrl =
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          try {
-            const resolved = await getUrl({ path: story.imageKey });
-            imageUrl = resolved.url.toString();
-          } catch {
-            imageUrl =
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          }
+      const storyList = Array.from(storyByOwner.values()).map((story) => {
           const profile = profileByOwner.get(story.owner ?? "");
           return {
             id: story.id,
@@ -1091,40 +1227,29 @@ export default function HomeScreen() {
               profile?.displayName ||
               profile?.username ||
               (story.owner ?? "USER").split("@")[0].toUpperCase(),
-            image: imageUrl,
+            image: story.imageUrl,
+            resolvedImageUrl: story.imageUrl,
             active: owner === story.owner,
           } satisfies StoryItem;
-        }),
-      );
+        });
 
-      const hasMyStory = storyList.some((story) => story.owner === owner);
-      const myProfile = profileByOwner.get(owner);
-      const myStoryItem: StoryItem = hasMyStory
-        ? (storyList.find((story) => story.owner === owner) as StoryItem)
-        : {
-            id: "my-create",
-            owner,
-            userName:
-              myProfile?.displayName || myProfile?.username || "MY GROW",
-            image:
-              myProfile?.avatarUrl ||
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300",
-            active: true,
-          };
-
+      const ownStories = storyList.filter((story) => story.owner === owner);
       const others = storyList.filter((story) => story.owner !== owner);
-      const nextStories = [myStoryItem, ...others];
+      const nextStories = [...ownStories, ...others];
 
-      await Promise.all(
-        nextStories.map(async (story) => {
-          try {
-            await Image.prefetch(story.image);
-          } catch {
-            // Ignore failed prefetch and still render using the original URL.
-          }
-        }),
-      );
+      const nextStoryStartByOwner: Record<string, StoryStartItem> = {};
+      storyQueueByOwner.forEach((queue, storyOwner) => {
+        const first = queue[0];
+        if (!first?.id || !first.imageUrl) {
+          return;
+        }
+        nextStoryStartByOwner[storyOwner] = {
+          storyId: first.id,
+          imageUrl: first.imageUrl,
+        };
+      });
 
+      setStoryStartByOwner(nextStoryStartByOwner);
       setStories(nextStories);
       hasLoadedInitialFeedRef.current = true;
       setIsInitialFeedLoading(false);
@@ -1141,6 +1266,7 @@ export default function HomeScreen() {
         setCurrentUserId("");
         setPosts(fallbackPosts);
         setStories([]);
+        setStoryStartByOwner({});
         setUnreadChatCount(0);
         hasLoadedInitialFeedRef.current = true;
         setIsInitialFeedLoading(false);
@@ -1823,57 +1949,81 @@ export default function HomeScreen() {
             </View>
           ) : null}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.storyList}
-          >
-            {stories.map((story) => (
+          {stories.length === 0 && !isInitialFeedLoading ? (
+            <View style={styles.storyEmptyWrap}>
+              <Text style={styles.storyEmptyText}>
+                まだストーリーがありません。ユーザーをフォローして日々の積み上げを見よう！
+              </Text>
               <Pressable
-                key={story.id}
-                style={styles.storyItem}
-                onPress={() =>
-                  router.push(
-                    story.id === "my-create"
-                      ? "/story-create"
-                      : `/story/${story.id}`,
-                  )
-                }
+                style={styles.storyDiscoverButton}
+                onPress={() => router.push("/(tabs)/growth")}
               >
-                <View style={styles.storyRingWrapper}>
-                  <View
-                    style={[
-                      styles.storyRing,
-                      story.active && styles.storyRingActive,
-                    ]}
-                  >
-                    <Image
-                      source={{ uri: story.image }}
-                      style={styles.storyAvatar}
-                    />
-                  </View>
-                  {story.owner === currentOwner && currentOwner.length > 0 ? (
-                    <Pressable
-                      style={styles.storyAddButton}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        router.push("/story-create");
-                      }}
-                    >
-                      <Ionicons
-                        name="add"
-                        size={12}
-                        color={theme.colors.onPrimary}
-                      />
-                    </Pressable>
-                  ) : null}
-                </View>
-                <Text style={styles.storyName} numberOfLines={1}>
-                  {story.userName}
-                </Text>
+                <Text style={styles.storyDiscoverButtonText}>見つける</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.storyList}
+            >
+              {stories.map((story) => (
+                <Pressable
+                  key={story.id}
+                  style={styles.storyItem}
+                  onPress={() => {
+                    const start = storyStartByOwner[story.owner];
+                    const firstStoryId = start?.storyId ?? story.id;
+                    const firstImageUrl = start?.imageUrl ?? story.resolvedImageUrl;
+
+                    router.push({
+                      pathname: "/story/[storyId]",
+                      params: {
+                        storyId: firstStoryId,
+                        imageUrl: firstImageUrl,
+                        initialIndex: "0",
+                      },
+                    });
+                  }}
+                >
+                  <View style={styles.storyRingWrapper}>
+                    <View
+                      style={[
+                        styles.storyRing,
+                        story.active && styles.storyRingActive,
+                      ]}
+                    >
+                      <ExpoImage
+                        source={{ uri: story.image }}
+                        style={styles.storyAvatar}
+                        contentFit="cover"
+                        transition={0}
+                        cachePolicy="memory-disk"
+                      />
+                    </View>
+                    {story.owner === currentOwner && currentOwner.length > 0 ? (
+                      <Pressable
+                        style={styles.storyAddButton}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          router.push("/story-create");
+                        }}
+                      >
+                        <Ionicons
+                          name="add"
+                          size={12}
+                          color={theme.colors.onPrimary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Text style={styles.storyName} numberOfLines={1}>
+                    {story.userName}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {posts.map((post) => {
@@ -2337,8 +2487,9 @@ const createStyles = () =>
       fontWeight: "700",
     },
     heading: {
-      fontSize: 30,
-      fontWeight: "900",
+      fontSize: 26,
+      fontWeight: "500",
+      letterSpacing: 1.4,
       color: theme.colors.text,
     },
     headerRow: {
@@ -2409,17 +2560,49 @@ const createStyles = () =>
       gap: theme.spacing.sm,
       marginBottom: theme.spacing.md,
     },
+    storyEmptyWrap: {
+      marginTop: theme.spacing.xs,
+      marginBottom: theme.spacing.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.colors.white,
+      paddingVertical: theme.spacing.md,
+      paddingHorizontal: theme.spacing.md,
+      alignItems: "center",
+      gap: theme.spacing.sm,
+    },
+    storyEmptyText: {
+      color: theme.colors.textSub,
+      fontSize: 13,
+      fontWeight: "700",
+      textAlign: "center",
+      lineHeight: 20,
+    },
+    storyDiscoverButton: {
+      height: 34,
+      borderRadius: 17,
+      paddingHorizontal: theme.spacing.md,
+      backgroundColor: theme.colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    storyDiscoverButtonText: {
+      color: theme.colors.onPrimary,
+      fontSize: 13,
+      fontWeight: "800",
+    },
     storyItem: {
-      width: 72,
+      width: 82,
       alignItems: "center",
     },
     storyRingWrapper: {
       position: "relative",
     },
     storyRing: {
-      width: 62,
-      height: 62,
-      borderRadius: 14,
+      width: 72,
+      height: 72,
+      borderRadius: 16,
       borderWidth: 2,
       borderColor: theme.colors.border,
       alignItems: "center",
@@ -2430,9 +2613,9 @@ const createStyles = () =>
       borderColor: theme.colors.primary,
     },
     storyAvatar: {
-      width: 54,
-      height: 54,
-      borderRadius: 10,
+      width: 62,
+      height: 62,
+      borderRadius: 12,
       backgroundColor: theme.colors.surface,
     },
     storyAddButton: {
@@ -2451,9 +2634,9 @@ const createStyles = () =>
     storyName: {
       marginTop: 6,
       color: theme.colors.text,
-      fontSize: 11,
-      fontWeight: "800",
-      maxWidth: 68,
+      fontSize: 12,
+      fontWeight: "700",
+      maxWidth: 78,
     },
     statLabel: {
       color: theme.colors.textSub,
