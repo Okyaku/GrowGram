@@ -3,5 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "moduleSuffixes": [".native", ".web", ""]
-  }
+  },
+  "exclude": [
+    "amplify" // ← ★これを絶対に追加！！！
+  ]
 }

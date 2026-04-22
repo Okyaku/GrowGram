@@ -13,10 +13,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.rentaroutaiyosorakeigo.app",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "ストーリーに投稿する写真を選択するために写真ライブラリへのアクセスが必要です。",
-        "NSPhotoLibraryAddUsageDescription": "ストーリー画像の処理のために写真ライブラリへのアクセスが必要です。"
+        "NSPhotoLibraryAddUsageDescription": "ストーリー画像の処理のために写真ライブラリへのアクセスが必要です。",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -37,6 +39,12 @@
       "expo-secure-store",
       "expo-font",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "26df5ac9-da70-4af0-93da-b125022df04d"
+      }
+    }
   }
 }
