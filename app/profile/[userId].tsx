@@ -12,6 +12,7 @@ import { theme } from "../../src/theme";
 type CloudProfile = {
   id: string;
   username?: string | null;
+  displayName?: string | null;
   bio?: string | null;
   iconImageKey?: string | null;
 };
@@ -55,6 +56,7 @@ const getProfileQuery = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      displayName
       bio
       iconImageKey
     }
@@ -245,7 +247,9 @@ export default function ProfileDetailScreen() {
   }, [client, userId]);
 
   const postCount = posts.length;
-  const displayName = profile?.username || `ユーザー ${userId}`;
+  const displayName =
+    profile?.displayName || profile?.username || `ユーザー ${userId}`;
+  const usernameHandle = profile?.username?.trim() || "user";
   const displayBio = profile?.bio
     ? sanitizeProfileBio(profile.bio)
     : "毎日コツコツ積み上げるのが目標です。開発と学習を継続中。";
@@ -321,6 +325,7 @@ export default function ProfileDetailScreen() {
           )}
         </View>
         <Text style={styles.name}>{displayName}</Text>
+        <Text style={styles.handle}>@{usernameHandle}</Text>
         <Text style={styles.bio}>{displayBio}</Text>
 
         {!isOwnProfile ? (
@@ -421,6 +426,12 @@ const createStyles = () =>
       color: theme.colors.text,
       fontSize: 24,
       fontWeight: "900",
+    },
+    handle: {
+      color: theme.colors.textSub,
+      fontSize: 14,
+      marginBottom: 8,
+      fontWeight: "600",
     },
     bio: {
       color: theme.colors.textSub,

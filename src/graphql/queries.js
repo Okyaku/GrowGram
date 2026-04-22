@@ -419,6 +419,7 @@ export const getProfile = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      displayName
       bio
       iconImageKey
       createdAt
@@ -438,6 +439,38 @@ export const listProfiles = /* GraphQL */ `
       items {
         id
         username
+        displayName
+        bio
+        iconImageKey
+        createdAt
+        updatedAt
+        owner
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const userByUsername = /* GraphQL */ `
+  query UserByUsername(
+    $username: String!
+    $sortDirection: ModelSortDirection
+    $filter: ModelProfileFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    userByUsername(
+      username: $username
+      sortDirection: $sortDirection
+      filter: $filter
+      limit: $limit
+      nextToken: $nextToken
+    ) {
+      items {
+        id
+        username
+        displayName
         bio
         iconImageKey
         createdAt

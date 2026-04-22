@@ -37,6 +37,7 @@ type CloudProfile = {
   id: string;
   owner?: string | null;
   username?: string | null;
+  displayName?: string | null;
   iconImageKey?: string | null;
 };
 
@@ -124,6 +125,7 @@ const getProfileQuery = /* GraphQL */ `
       id
       owner
       username
+      displayName
       iconImageKey
     }
   }
@@ -136,6 +138,7 @@ const listProfilesQuery = /* GraphQL */ `
         id
         owner
         username
+        displayName
         iconImageKey
       }
     }
@@ -550,7 +553,9 @@ export default function StoryViewScreen() {
   }, [goNextStory, isPlaybackPaused, progress, story]);
 
   const displayName =
-    profile?.username || (story?.owner ?? "USER").split("@")[0].toUpperCase();
+    profile?.displayName ||
+    profile?.username ||
+    (story?.owner ?? "USER").split("@")[0].toUpperCase();
   const created = story?.createdAt ? new Date(story.createdAt) : null;
   const timeLabel = created
     ? `${created.getMonth() + 1}/${created.getDate()} ${created.getHours()}:${`${created.getMinutes()}`.padStart(2, "0")}`

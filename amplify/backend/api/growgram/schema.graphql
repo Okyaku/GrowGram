@@ -180,7 +180,8 @@ type Profile
     ]
   ) {
   id: ID!
-  username: String!
+  username: String! @index(name: "byUsername", queryField: "userByUsername")
+  displayName: String
   bio: String
   iconImageKey: String
   createdAt: AWSDateTime

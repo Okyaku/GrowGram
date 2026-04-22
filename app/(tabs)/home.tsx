@@ -42,6 +42,7 @@ type CloudProfile = {
   id: string;
   owner?: string | null;
   username?: string | null;
+  displayName?: string | null;
   iconImageKey?: string | null;
 };
 
@@ -234,6 +235,7 @@ const listProfilesQuery = /* GraphQL */ `
         id
         owner
         username
+        displayName
         iconImageKey
       }
     }
@@ -741,6 +743,7 @@ export default function HomeScreen() {
               id: item.id,
               owner: item.owner ?? "",
               username: item.username ?? "",
+              displayName: item.displayName ?? item.username ?? "",
               avatarUrl,
             };
           }),
@@ -953,6 +956,7 @@ export default function HomeScreen() {
             postId: item.postId,
             ownerId: profile?.id ?? commentOwner,
             ownerName:
+              profile?.displayName ||
               profile?.username ||
               (commentOwner.split("@")[0] || "USER").toUpperCase(),
             ownerAvatar: profile?.avatarUrl,
@@ -987,6 +991,7 @@ export default function HomeScreen() {
             id: item.id,
             userId: postOwner,
             userName:
+              profile?.displayName ||
               profile?.username || postOwner.split("@")[0].toUpperCase(),
             userAvatar: profile?.avatarUrl,
             title: item.title ?? "USER POST",
@@ -1089,6 +1094,7 @@ export default function HomeScreen() {
             id: story.id,
             owner: story.owner ?? "",
             userName:
+              profile?.displayName ||
               profile?.username ||
               (story.owner ?? "USER").split("@")[0].toUpperCase(),
             image: imageUrl,
@@ -1104,7 +1110,8 @@ export default function HomeScreen() {
         : {
             id: "my-create",
             owner,
-            userName: myProfile?.username || "MY GROW",
+            userName:
+              myProfile?.displayName || myProfile?.username || "MY GROW",
             image:
               myProfile?.avatarUrl ||
               "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300",

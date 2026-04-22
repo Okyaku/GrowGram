@@ -27,6 +27,7 @@ const menus = [
 type CloudProfile = {
   id: string;
   username?: string | null;
+  displayName?: string | null;
   bio?: string | null;
   iconImageKey?: string | null;
 };
@@ -48,6 +49,7 @@ const getProfileQuery = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      displayName
       bio
       iconImageKey
     }
@@ -100,6 +102,7 @@ export default function MyPageScreen() {
   const scrollViewRef = React.useRef<ScrollView | null>(null);
   const { logout } = useRoadmap();
   const [name, setName] = React.useState("ユーザー");
+  const [usernameId, setUsernameId] = React.useState("user");
   const [caption, setCaption] =
     React.useState("プロフィールを設定してください");
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
@@ -137,7 +140,12 @@ export default function MyPageScreen() {
           .data?.getProfile ?? null;
 
       if (profile) {
-        setName(profile.username?.trim() || "ユーザー");
+        setName(
+          profile.displayName?.trim() ||
+            profile.username?.trim() ||
+            "ユーザー",
+        );
+        setUsernameId(profile.username?.trim() || "user");
         setCaption(profile.bio?.trim() || "プロフィールを設定してください");
 
         if (profile.iconImageKey) {
@@ -220,7 +228,7 @@ export default function MyPageScreen() {
       backgroundColor={theme.colors.surface}
       scrollViewRef={scrollViewRef}
     >
-      <Text style={styles.pageTitle}>@{name}</Text>
+      <Text style={styles.pageTitle}>@{usernameId}</Text>
       <View style={styles.profileCard}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -279,9 +287,11 @@ const createStyles = () =>
   StyleSheet.create({
     pageTitle: {
       color: theme.colors.text,
-      fontSize: 30,
+      fontSize: 24,
       fontWeight: "900",
       marginBottom: theme.spacing.sm,
+      textAlign: "center",
+      alignSelf: "center",
     },
     profileCard: {
       backgroundColor: theme.colors.white,
