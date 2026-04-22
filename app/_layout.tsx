@@ -84,6 +84,8 @@ export default function RootLayout() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="profile-edit" />
         <Stack.Screen name="legal" />
+        <Stack.Screen name="terms" />
+        <Stack.Screen name="privacy-policy" />
       </Stack>
     </RoadmapProvider>
   );

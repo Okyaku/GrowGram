@@ -25,12 +25,12 @@ const settingMenus = [
   },
   {
     label: "利用規約",
-    route: "/legal" as const,
+    route: "/terms" as const,
     icon: "document-text" as const,
   },
   {
     label: "プライバシーポリシー",
-    route: "/legal" as const,
+    route: "/privacy-policy" as const,
     icon: "shield-checkmark" as const,
   },
   {
