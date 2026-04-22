@@ -29,6 +29,7 @@ type CloudProfile = {
   id: string;
   owner?: string | null;
   username?: string | null;
+  displayName?: string | null;
   iconImageKey?: string | null;
 };
 
@@ -64,6 +65,7 @@ const listProfilesQuery = /* GraphQL */ `
         id
         owner
         username
+        displayName
         iconImageKey
       }
     }
@@ -134,7 +136,7 @@ export default function ChatInboxScreen() {
 
       const profileByOwner = new Map<
         string,
-        { id: string; username: string; avatarUrl?: string }
+        { id: string; username: string; displayName: string; avatarUrl?: string }
       >();
       const profiles = await Promise.all(
         profileItems
@@ -153,6 +155,10 @@ export default function ChatInboxScreen() {
               owner: item.owner ?? item.id,
               id: item.id,
               username:
+                item.username ??
+                (item.owner ?? item.id).split("@")[0].toUpperCase(),
+              displayName:
+                item.displayName ??
                 item.username ??
                 (item.owner ?? item.id).split("@")[0].toUpperCase(),
               avatarUrl,
@@ -193,7 +199,7 @@ export default function ChatInboxScreen() {
           conversationMap.set(partnerId, {
             partnerId,
             partnerName:
-              profile?.username || partnerId.split("@")[0].toUpperCase(),
+              profile?.displayName || partnerId.split("@")[0].toUpperCase(),
             partnerAvatarUrl: profile?.avatarUrl,
             lastMessage: message.storyId
               ? `ストーリー: ${message.storyCaption ?? "共有メッセージ"}`

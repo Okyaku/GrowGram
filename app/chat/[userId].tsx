@@ -37,6 +37,7 @@ type CloudReceipt = {
 type CloudProfile = {
   id: string;
   username?: string | null;
+  displayName?: string | null;
   iconImageKey?: string | null;
 };
 
@@ -101,6 +102,7 @@ const getProfileQuery = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      displayName
       iconImageKey
     }
   }
@@ -230,7 +232,9 @@ export default function ChatScreen() {
         (profileResponse as { data?: { getProfile?: CloudProfile | null } })
           .data?.getProfile ?? null;
       setPartnerName(
-        profile?.username || (partnerId.split("@")[0] || "USER").toUpperCase(),
+        profile?.displayName ||
+          profile?.username ||
+          (partnerId.split("@")[0] || "USER").toUpperCase(),
       );
       if (profile?.iconImageKey) {
         try {

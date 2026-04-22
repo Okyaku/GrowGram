@@ -13,14 +13,19 @@ import {
 } from "../src/components/common";
 import { theme } from "../src/theme";
 import { BackButton } from "../src/components/common/BackButton";
-import { Text } from "../src/components/common/Typography";
+import { Text, TextInput } from "../src/components/common/Typography";
 
 type ProfileItem = {
   id: string;
   username: string;
+  displayName?: string | null;
   bio?: string | null;
   iconImageKey?: string | null;
 };
+
+const USERNAME_PATTERN = /^[a-z0-9_]+$/;
+
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
 
 const parseProfileBio = (bio: string) => {
   const parts = bio.split(" / ").map((part) => part.trim());
@@ -44,8 +49,20 @@ const getProfileQuery = /* GraphQL */ `
     getProfile(id: $id) {
       id
       username
+      displayName
       bio
       iconImageKey
+    }
+  }
+`;
+
+const userByUsernameQuery = /* GraphQL */ `
+  query UserByUsername($username: String!, $limit: Int) {
+    userByUsername(username: $username, limit: $limit) {
+      items {
+        id
+        username
+      }
     }
   }
 `;
@@ -55,6 +72,7 @@ const createProfileMutation = /* GraphQL */ `
     createProfile(input: $input) {
       id
       username
+      displayName
       bio
       iconImageKey
     }
@@ -66,6 +84,7 @@ const updateProfileMutation = /* GraphQL */ `
     updateProfile(input: $input) {
       id
       username
+      displayName
       bio
       iconImageKey
     }
@@ -80,7 +99,13 @@ export default function ProfileEditScreen() {
     [],
   );
   const [avatar, setAvatar] = React.useState<string | null>(null);
+  const [displayName, setDisplayName] = React.useState("");
   const [username, setUsername] = React.useState("");
+  const [initialUsername, setInitialUsername] = React.useState("");
+  const [usernameErrorText, setUsernameErrorText] = React.useState("");
+  const [isCheckingUsername, setIsCheckingUsername] = React.useState(false);
+  const [isUsernameAvailable, setIsUsernameAvailable] =
+    React.useState<boolean>(true);
   const [challenge, setChallenge] = React.useState("");
   const [longTermGoal, setLongTermGoal] = React.useState("");
   const [currentUserId, setCurrentUserId] = React.useState<string>("");
@@ -92,6 +117,39 @@ export default function ProfileEditScreen() {
     null,
   );
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const checkUsernameDuplicate = React.useCallback(
+    async (candidate: string) => {
+      const normalized = normalizeUsername(candidate);
+      if (!normalized || !USERNAME_PATTERN.test(normalized)) {
+        return false;
+      }
+
+      const response = await client.graphql({
+        query: userByUsernameQuery,
+        variables: {
+          username: normalized,
+          limit: 1,
+        },
+      });
+
+      const matched = (
+        response as {
+          data?: {
+            userByUsername?: { items?: Array<{ id?: string | null } | null> };
+          };
+        }
+      ).data?.userByUsername?.items;
+
+      const hit = (matched ?? []).find((item) => item?.id);
+      if (!hit?.id) {
+        return false;
+      }
+
+      return hit.id !== currentUserId;
+    },
+    [client, currentUserId],
+  );
 
   const uploadAvatar = React.useCallback(async (uri: string) => {
     const response = await fetch(uri);
@@ -139,7 +197,9 @@ export default function ProfileEditScreen() {
         }
 
         setProfileId(profile.id);
+        setDisplayName(profile.displayName ?? profile.username ?? "");
         setUsername(profile.username ?? "");
+        setInitialUsername(profile.username ?? "");
         const bio = profile.bio ?? "";
         const parsed = parseProfileBio(bio);
         setChallenge(parsed.challenge);
@@ -174,6 +234,71 @@ export default function ProfileEditScreen() {
     };
   }, [client]);
 
+  React.useEffect(() => {
+    const normalized = normalizeUsername(username);
+
+    if (!normalized) {
+      setUsernameErrorText("ユーザーネームを入力してください。");
+      setIsCheckingUsername(false);
+      setIsUsernameAvailable(false);
+      return;
+    }
+
+    if (!USERNAME_PATTERN.test(normalized)) {
+      setUsernameErrorText(
+        "ユーザーネームは半角英小文字・数字・アンダースコアのみ入力できます。",
+      );
+      setIsCheckingUsername(false);
+      setIsUsernameAvailable(false);
+      return;
+    }
+
+    if (normalized === normalizeUsername(initialUsername)) {
+      setUsernameErrorText("");
+      setIsCheckingUsername(false);
+      setIsUsernameAvailable(true);
+      return;
+    }
+
+    let isActive = true;
+    setIsCheckingUsername(true);
+    setUsernameErrorText("");
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const isDuplicated = await checkUsernameDuplicate(normalized);
+          if (!isActive) {
+            return;
+          }
+
+          if (isDuplicated) {
+            setUsernameErrorText("このユーザーネームは既に使用されています");
+            setIsUsernameAvailable(false);
+          } else {
+            setUsernameErrorText("");
+            setIsUsernameAvailable(true);
+          }
+        } catch {
+          if (!isActive) {
+            return;
+          }
+          setUsernameErrorText("ユーザーネーム確認に失敗しました。再度お試しください。");
+          setIsUsernameAvailable(false);
+        } finally {
+          if (isActive) {
+            setIsCheckingUsername(false);
+          }
+        }
+      })();
+    }, 500);
+
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+    };
+  }, [checkUsernameDuplicate, initialUsername, username]);
+
   const pickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -197,9 +322,43 @@ export default function ProfileEditScreen() {
   };
 
   const onSave = React.useCallback(async () => {
-    if (!username.trim()) {
-      Alert.alert("入力不足", "氏名またはニックネームを入力してください。");
-      return;
+    if (!displayName.trim()) {
+      Alert.alert("入力不足", "名前（表示名）を入力してください。");
+      return false;
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    if (!normalizedUsername) {
+      Alert.alert("入力不足", "ユーザーネームを入力してください。");
+      return false;
+    }
+
+    if (!USERNAME_PATTERN.test(normalizedUsername)) {
+      Alert.alert(
+        "入力形式エラー",
+        "ユーザーネームは半角英小文字・数字・アンダースコアのみ入力できます。",
+      );
+      return false;
+    }
+
+    if (isCheckingUsername || !isUsernameAvailable) {
+      Alert.alert(
+        "ユーザーネーム確認中",
+        "ユーザーネームの重複チェック完了後に保存してください。",
+      );
+      return false;
+    }
+
+    const duplicated = await checkUsernameDuplicate(normalizedUsername);
+    if (duplicated) {
+      setUsernameErrorText("このユーザーネームは既に使用されています");
+      setIsUsernameAvailable(false);
+      Alert.alert("入力エラー", "このユーザーネームは既に使用されています");
+      return false;
+    }
+
+    if (normalizedUsername !== username) {
+      setUsername(normalizedUsername);
     }
 
     if (!currentUserId) {
@@ -207,7 +366,7 @@ export default function ProfileEditScreen() {
         "認証エラー",
         "ユーザー情報を取得できません。再ログイン後にお試しください。",
       );
-      return;
+      return false;
     }
 
     const bioParts = [
@@ -230,7 +389,8 @@ export default function ProfileEditScreen() {
           variables: {
             input: {
               id: profileId,
-              username: username.trim(),
+              username: normalizedUsername,
+              displayName: displayName.trim(),
               bio: composedBio,
               iconImageKey,
             },
@@ -242,7 +402,8 @@ export default function ProfileEditScreen() {
           variables: {
             input: {
               id: currentUserId,
-              username: username.trim(),
+              username: normalizedUsername,
+              displayName: displayName.trim(),
               bio: composedBio,
               iconImageKey,
             },
@@ -257,6 +418,10 @@ export default function ProfileEditScreen() {
         }
       }
 
+      setInitialUsername(normalizedUsername);
+      setUsernameErrorText("");
+      setIsUsernameAvailable(true);
+
       if (iconImageKey) {
         setInitialImageKey(iconImageKey);
         try {
@@ -268,12 +433,14 @@ export default function ProfileEditScreen() {
       }
 
       Alert.alert("保存しました", "プロフィール情報を更新しました。");
+      return true;
     } catch (error) {
       console.error("[ProfileEdit] failed to save profile:", error);
       Alert.alert(
         "保存失敗",
         "プロフィールの保存に失敗しました。時間をおいて再試行してください。",
       );
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -281,12 +448,28 @@ export default function ProfileEditScreen() {
     avatar,
     challenge,
     currentUserId,
+    displayName,
     initialImageKey,
+    isCheckingUsername,
+    isUsernameAvailable,
     longTermGoal,
     profileId,
+    checkUsernameDuplicate,
     uploadAvatar,
     username,
   ]);
+
+  const usernameStatusText = isCheckingUsername
+    ? "ユーザーネームを確認中..."
+    : usernameErrorText;
+
+  const canSubmit =
+    !isSubmitting &&
+    Boolean(displayName.trim()) &&
+    Boolean(normalizeUsername(username)) &&
+    USERNAME_PATTERN.test(normalizeUsername(username)) &&
+    !isCheckingUsername &&
+    isUsernameAvailable;
 
   return (
     <ScreenContainer>
@@ -312,11 +495,45 @@ export default function ProfileEditScreen() {
       </View>
 
       <InputField
-        label="氏名またはニックネーム"
+        label="名前（表示名）"
         placeholder="例: 田中 太郎"
-        value={username}
-        onChangeText={setUsername}
+        value={displayName}
+        onChangeText={setDisplayName}
       />
+
+      <View style={styles.usernameFieldWrap}>
+        <Text style={styles.usernameLabel}>ユーザーネーム（一意のID）</Text>
+        <View style={styles.usernameInputRow}>
+          <Text style={styles.usernamePrefix}>@</Text>
+          <TextInput
+            value={username}
+            onChangeText={(value) => {
+              setUsername(value.toLowerCase());
+            }}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="例: taro_123"
+            placeholderTextColor={theme.colors.textSub}
+            style={styles.usernameInput}
+          />
+        </View>
+        {usernameStatusText ? (
+          <Text
+            style={[
+              styles.usernameStatusText,
+              isCheckingUsername
+                ? styles.usernameStatusInfo
+                : styles.usernameStatusError,
+            ]}
+          >
+            {usernameStatusText}
+          </Text>
+        ) : (
+          <Text style={[styles.usernameStatusText, styles.usernameStatusOk]}>
+            使用可能です
+          </Text>
+        )}
+      </View>
       <InputField
         label="長期的な目標"
         placeholder="例: 1年後にフルマラソン完走、資格取得"
@@ -327,9 +544,14 @@ export default function ProfileEditScreen() {
       <CustomButton
         label="プロフィールを保存して次へ"
         onPress={() => {
-          void onSave();
-          router.back();
+          void (async () => {
+            const success = await onSave();
+            if (success) {
+              router.back();
+            }
+          })();
         }}
+        disabled={!canSubmit}
         loading={isSubmitting}
       />
 
@@ -412,6 +634,52 @@ const createStyles = () =>
       fontWeight: "600",
       marginTop: 4,
       marginBottom: theme.spacing.sm,
+    },
+    usernameFieldWrap: {
+      marginBottom: theme.spacing.md,
+    },
+    usernameLabel: {
+      color: theme.colors.text,
+      fontSize: theme.typography.caption,
+      marginBottom: theme.spacing.xs,
+      fontWeight: "700",
+    },
+    usernameInputRow: {
+      minHeight: 52,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: theme.spacing.md,
+      gap: theme.spacing.xs,
+    },
+    usernamePrefix: {
+      fontSize: theme.typography.body,
+      color: theme.colors.textSub,
+      fontWeight: "700",
+    },
+    usernameInput: {
+      flex: 1,
+      color: theme.colors.text,
+      fontSize: theme.typography.body,
+      minHeight: 50,
+      paddingVertical: 0,
+    },
+    usernameStatusText: {
+      marginTop: 6,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    usernameStatusInfo: {
+      color: theme.colors.primary,
+    },
+    usernameStatusError: {
+      color: theme.colors.danger,
+    },
+    usernameStatusOk: {
+      color: theme.colors.success,
     },
     progressRow: {
       marginTop: theme.spacing.md,
