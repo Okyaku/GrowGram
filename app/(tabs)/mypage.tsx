@@ -41,12 +41,6 @@ type CloudFollow = {
   followingId: string;
 };
 
-type CloudSave = {
-  id: string;
-  owner?: string | null;
-  postId: string;
-};
-
 type CloudPost = {
   id: string;
   owner?: string | null;
@@ -105,18 +99,6 @@ const listFollowsQuery = /* GraphQL */ `
   }
 `;
 
-const listPostSavesQuery = /* GraphQL */ `
-  query ListPostSaves {
-    listPostSaves(limit: 2000) {
-      items {
-        id
-        owner
-        postId
-      }
-    }
-  }
-`;
-
 export default function MyPageScreen() {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
@@ -136,7 +118,6 @@ export default function MyPageScreen() {
   const [postCount, setPostCount] = React.useState(0);
   const [followersCount, setFollowersCount] = React.useState(0);
   const [followingCount, setFollowingCount] = React.useState(0);
-  const [savedCount, setSavedCount] = React.useState(0);
   const [posts, setPosts] = React.useState<GalleryPost[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = React.useState(true);
 
@@ -156,12 +137,11 @@ export default function MyPageScreen() {
         return;
       }
 
-      const [profileResponse, postsResponse, followsResponse, savesResponse] =
+      const [profileResponse, postsResponse, followsResponse] =
         await Promise.all([
           client.graphql({ query: getProfileQuery, variables: { id: userId } }),
           client.graphql({ query: listMyPostsQuery }),
           client.graphql({ query: listFollowsQuery }),
-          client.graphql({ query: listPostSavesQuery }),
         ]);
 
       const profile =
@@ -278,19 +258,6 @@ export default function MyPageScreen() {
         normalizedFollows.filter((item) => item.followerId === userId).length,
       );
 
-      const saves =
-        (
-          savesResponse as {
-            data?: { listPostSaves?: { items?: Array<CloudSave | null> } };
-          }
-        ).data?.listPostSaves?.items ?? [];
-      const normalizedSaves = saves.filter((item): item is CloudSave =>
-        Boolean(item?.id && item.postId),
-      );
-      setSavedCount(
-        normalizedSaves.filter((item) => item.owner === authUser.username)
-          .length,
-      );
     } catch (error) {
       if (__DEV__) {
         console.log("[MyPage] failed to load profile:", error);
@@ -345,10 +312,6 @@ export default function MyPageScreen() {
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{postCount}</Text>
             <Text style={styles.statLabel}>投稿</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{savedCount}</Text>
-            <Text style={styles.statLabel}>保存</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{followingCount}</Text>
