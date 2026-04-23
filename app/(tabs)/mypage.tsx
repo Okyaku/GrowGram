@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
@@ -59,9 +59,12 @@ type CloudPost = {
 
 type GalleryPost = {
   id: string;
+  owner: string;
   title: string;
   content: string;
   imageUrl: string;
+  imageUrls: string[];
+  imageKeys: string[];
   createdAt: string;
 };
 
@@ -152,9 +155,31 @@ export default function MyPageScreen() {
     try {
       const authUser = await getCurrentUser();
       const userId = authUser.userId;
+      const username = authUser.username ?? "";
       if (!userId) {
         return;
       }
+
+      const isOwnedByMe = (recordOwner?: string | null) => {
+        if (!recordOwner) {
+          return false;
+        }
+
+        if (recordOwner === userId) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner === username) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner.endsWith(`::${username}`)) {
+          return true;
+        }
+        if (recordOwner.endsWith(`::${userId}`)) {
+          return true;
+        }
+
+        return false;
+      };
 
       const [profileResponse, postsResponse, followsResponse, savesResponse] =
         await Promise.all([
@@ -204,7 +229,7 @@ export default function MyPageScreen() {
 
       const normalizedOwnPosts = allPosts
         .filter((item): item is CloudPost =>
-          Boolean(item?.id && (item.owner ?? "") === authUser.username),
+          Boolean(item?.id && isOwnedByMe(item.owner)),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -219,12 +244,20 @@ export default function MyPageScreen() {
           const keys = (item.imageKeys ?? []).filter((key): key is string =>
             Boolean(key),
           );
-          const primaryImage = keys[0] ?? item.imageKey ?? null;
+          const imageSources =
+            keys.length > 0
+              ? keys
+              : item.imageKey
+                ? [item.imageKey]
+                : [];
+          const primaryImage = imageSources[0] ?? null;
           return {
             id: item.id,
+            owner: item.owner ?? "",
             title: item.title ?? "",
             content: item.content ?? "",
             createdAt: item.createdAt ?? "",
+            imageSources,
             primaryImage,
           };
         })
@@ -232,29 +265,52 @@ export default function MyPageScreen() {
 
       const resolvedGallery = await Promise.all(
         galleryCandidates.map(async (item) => {
-          const source = item.primaryImage as string;
-          if (source.startsWith("http://") || source.startsWith("https://")) {
+          const resolvedSources = await Promise.all(
+            item.imageSources.map(async (source) => {
+              if (source.startsWith("http://") || source.startsWith("https://")) {
+                return source;
+              }
+
+              try {
+                const resolved = await getUrl({ path: source });
+                return resolved.url.toString();
+              } catch {
+                return null;
+              }
+            }),
+          );
+
+          const safeImageUrls = resolvedSources.filter(
+            (url): url is string => Boolean(url),
+          );
+
+          if (safeImageUrls.length === 0) {
+            return null;
+          }
+
+          if (item.primaryImage?.startsWith("http://") || item.primaryImage?.startsWith("https://")) {
             return {
               id: item.id,
+              owner: item.owner,
               title: item.title,
               content: item.content,
               createdAt: item.createdAt,
-              imageUrl: source,
+              imageUrl: safeImageUrls[0],
+              imageUrls: safeImageUrls,
+              imageKeys: item.imageSources,
             } satisfies GalleryPost;
           }
 
-          try {
-            const resolved = await getUrl({ path: source });
-            return {
-              id: item.id,
-              title: item.title,
-              content: item.content,
-              createdAt: item.createdAt,
-              imageUrl: resolved.url.toString(),
-            } satisfies GalleryPost;
-          } catch {
-            return null;
-          }
+          return {
+            id: item.id,
+            owner: item.owner,
+            title: item.title,
+            content: item.content,
+            createdAt: item.createdAt,
+            imageUrl: safeImageUrls[0],
+            imageUrls: safeImageUrls,
+            imageKeys: item.imageSources,
+          } satisfies GalleryPost;
         }),
       );
 
@@ -288,8 +344,7 @@ export default function MyPageScreen() {
         Boolean(item?.id && item.postId),
       );
       setSavedCount(
-        normalizedSaves.filter((item) => item.owner === authUser.username)
-          .length,
+        normalizedSaves.filter((item) => isOwnedByMe(item.owner)).length,
       );
     } catch (error) {
       if (__DEV__) {
@@ -300,6 +355,13 @@ export default function MyPageScreen() {
       setIsLoadingPosts(false);
     }
   }, [client]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setIsLoadingPosts(true);
+      void loadMyPageData();
+    }, [loadMyPageData]),
+  );
 
   React.useEffect(() => {
     setIsLoadingPosts(true);
@@ -390,12 +452,18 @@ export default function MyPageScreen() {
           renderItem={({ item, index }) => (
             <TouchableOpacity
               activeOpacity={0.9}
-              onPress={() =>
+              onPress={() => {
+                if (__DEV__) {
+                  console.log("[MyPage] selected post:", item);
+                }
                 router.push({
                   pathname: "/post/[postId]",
-                  params: { postId: item.id },
-                })
-              }
+                  params: {
+                    postId: item.id,
+                    postData: JSON.stringify(item),
+                  },
+                });
+              }}
               style={[
                 styles.galleryItemTouch,
                 (index + 1) % GRID_COLUMNS !== 0 && styles.galleryItemRightGap,

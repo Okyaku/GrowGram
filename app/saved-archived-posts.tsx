@@ -354,12 +354,26 @@ export default function SavedArchivedPostsScreen() {
     return (
       <Pressable
         style={styles.postCard}
-        onPress={() =>
+        onPress={() => {
+          const selectedPostPayload = {
+            id: item.id,
+            owner: item.owner ?? "",
+            title: item.title ?? "",
+            content: item.content ?? "",
+            imageUrl: imagesToShow[0] ?? "",
+            createdAt: item.createdAt,
+          };
+          if (__DEV__) {
+            console.log("[SavedArchived] selected post:", selectedPostPayload);
+          }
           router.push({
             pathname: "/post/[postId]",
-            params: { postId: item.id },
-          })
-        }
+            params: {
+              postId: item.id,
+              postData: JSON.stringify(selectedPostPayload),
+            },
+          });
+        }}
       >
         <View style={styles.postHeader}>
           <Text style={styles.postTitle} numberOfLines={2}>
