@@ -54,6 +54,7 @@ type CloudPost = {
   content?: string | null;
   imageKey?: string | null;
   imageKeys?: Array<string | null> | null;
+  isArchived?: boolean | null;
   createdAt?: string | null;
 };
 
@@ -87,6 +88,7 @@ const listMyPostsQuery = /* GraphQL */ `
         content
         imageKey
         imageKeys
+        isArchived
         createdAt
       }
     }
@@ -152,9 +154,29 @@ export default function MyPageScreen() {
     try {
       const authUser = await getCurrentUser();
       const userId = authUser.userId;
+      const username = authUser.username ?? "";
       if (!userId) {
         return;
       }
+
+      const isOwnedByMe = (recordOwner?: string | null) => {
+        if (!recordOwner) {
+          return false;
+        }
+        if (recordOwner === userId) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner === username) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner.endsWith(`::${username}`)) {
+          return true;
+        }
+        if (recordOwner.endsWith(`::${userId}`)) {
+          return true;
+        }
+        return false;
+      };
 
       const [profileResponse, postsResponse, followsResponse, savesResponse] =
         await Promise.all([
@@ -204,15 +226,13 @@ export default function MyPageScreen() {
 
       const normalizedOwnPosts = allPosts
         .filter((item): item is CloudPost =>
-          Boolean(item?.id && (item.owner ?? "") === authUser.username),
+          Boolean(item?.id && isOwnedByMe(item.owner) && item.isArchived !== true),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return bTime - aTime;
         });
-
-      setPostCount(normalizedOwnPosts.length);
 
       const galleryCandidates = normalizedOwnPosts
         .map((item) => {
@@ -258,9 +278,11 @@ export default function MyPageScreen() {
         }),
       );
 
-      setPosts(
-        resolvedGallery.filter((item): item is GalleryPost => Boolean(item)),
+      const nextPosts = resolvedGallery.filter(
+        (item): item is GalleryPost => Boolean(item),
       );
+      setPosts(nextPosts);
+      setPostCount(nextPosts.length);
 
       const follows =
         (
@@ -287,10 +309,7 @@ export default function MyPageScreen() {
       const normalizedSaves = saves.filter((item): item is CloudSave =>
         Boolean(item?.id && item.postId),
       );
-      setSavedCount(
-        normalizedSaves.filter((item) => item.owner === authUser.username)
-          .length,
-      );
+      setSavedCount(normalizedSaves.filter((item) => isOwnedByMe(item.owner)).length);
     } catch (error) {
       if (__DEV__) {
         console.log("[MyPage] failed to load profile:", error);
