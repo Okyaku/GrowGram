@@ -17,7 +17,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
-import { theme } from "../../src/theme";
+import { getThemeMode, theme } from "../../src/theme";
 
 type CloudPost = {
   id: string;
@@ -28,6 +28,29 @@ type CloudPost = {
   imageKeys?: Array<string | null> | null;
   createdAt?: string | null;
 };
+
+type CloudPostLike = {
+  id: string;
+  postId: string;
+  owner?: string | null;
+  reactionType?: "passion" | "logic" | "routine" | null;
+};
+
+type CloudPostSave = {
+  id: string;
+  postId: string;
+  owner?: string | null;
+};
+
+type CloudPostComment = {
+  id: string;
+  postId: string;
+  owner?: string | null;
+  content?: string | null;
+  createdAt?: string | null;
+};
+
+type ReactionType = "passion" | "logic" | "routine";
 
 const getPostQuery = /* GraphQL */ `
   query GetPost($id: ID!) {
@@ -43,12 +66,52 @@ const getPostQuery = /* GraphQL */ `
   }
 `;
 
+const listPostLikesQuery = /* GraphQL */ `
+  query ListPostLikes {
+    listPostLikes(limit: 1000) {
+      items {
+        id
+        postId
+        owner
+        reactionType
+      }
+    }
+  }
+`;
+
+const listPostSavesQuery = /* GraphQL */ `
+  query ListPostSaves {
+    listPostSaves(limit: 1000) {
+      items {
+        id
+        postId
+        owner
+      }
+    }
+  }
+`;
+
+const listPostCommentsQuery = /* GraphQL */ `
+  query ListPostComments {
+    listPostComments(limit: 1000) {
+      items {
+        id
+        postId
+        owner
+        content
+        createdAt
+      }
+    }
+  }
+`;
+
 const updatePostMutation = /* GraphQL */ `
   mutation UpdatePost($input: UpdatePostInput!) {
     updatePost(input: $input) {
       id
       title
       content
+      isArchived
     }
   }
 `;
@@ -57,6 +120,54 @@ const deletePostMutation = /* GraphQL */ `
   mutation DeletePost($input: DeletePostInput!) {
     deletePost(input: $input) {
       id
+    }
+  }
+`;
+
+const createPostSaveMutation = /* GraphQL */ `
+  mutation CreatePostSave($input: CreatePostSaveInput!) {
+    createPostSave(input: $input) {
+      id
+      postId
+    }
+  }
+`;
+
+const deletePostSaveMutation = /* GraphQL */ `
+  mutation DeletePostSave($input: DeletePostSaveInput!) {
+    deletePostSave(input: $input) {
+      id
+      postId
+    }
+  }
+`;
+
+const createPostLikeMutation = /* GraphQL */ `
+  mutation CreatePostLike($input: CreatePostLikeInput!) {
+    createPostLike(input: $input) {
+      id
+      postId
+      reactionType
+    }
+  }
+`;
+
+const deletePostLikeMutation = /* GraphQL */ `
+  mutation DeletePostLike($input: DeletePostLikeInput!) {
+    deletePostLike(input: $input) {
+      id
+      postId
+      reactionType
+    }
+  }
+`;
+
+const createPostCommentMutation = /* GraphQL */ `
+  mutation CreatePostComment($input: CreatePostCommentInput!) {
+    createPostComment(input: $input) {
+      id
+      postId
+      content
     }
   }
 `;
@@ -77,8 +188,16 @@ type ResolvedImageItem = {
   url: string;
 };
 
+type PostCommentItem = {
+  id: string;
+  owner: string;
+  content: string;
+  createdAt: string;
+};
+
 export default function PostDetailScreen() {
-  const styles = React.useMemo(() => createStyles(), []);
+  const isDarkMode = getThemeMode() === "dark";
+  const styles = React.useMemo(() => createStyles(isDarkMode), [isDarkMode]);
   const { width: windowWidth } = useWindowDimensions();
   const imageWidth = Math.max(windowWidth - theme.spacing.md * 2, 1);
   const imageHeight = Math.round(imageWidth * 1.15);
@@ -118,6 +237,41 @@ export default function PostDetailScreen() {
     React.useState<SelectedPostPayload | null>(null);
   const [isOwnerPost, setIsOwnerPost] = React.useState(false);
   const [visibleImageIndex, setVisibleImageIndex] = React.useState(0);
+  const [passionCount, setPassionCount] = React.useState(0);
+  const [logicCount, setLogicCount] = React.useState(0);
+  const [routineCount, setRoutineCount] = React.useState(0);
+  const [saveCount, setSaveCount] = React.useState(0);
+  const [commentCount, setCommentCount] = React.useState(0);
+  const [isSavedByMe, setIsSavedByMe] = React.useState(false);
+  const [saveRecordId, setSaveRecordId] = React.useState<string | null>(null);
+  const [isSavePending, setIsSavePending] = React.useState(false);
+  const [isArchiving, setIsArchiving] = React.useState(false);
+  const [refreshTick, setRefreshTick] = React.useState(0);
+  const [reactionRecordIdByType, setReactionRecordIdByType] = React.useState<
+    Partial<Record<ReactionType, string>>
+  >({});
+  const [isReactionPendingByType, setIsReactionPendingByType] = React.useState<
+    Partial<Record<ReactionType, boolean>>
+  >({});
+  const [commentPanelOpen, setCommentPanelOpen] = React.useState(false);
+  const [commentInput, setCommentInput] = React.useState("");
+  const [isSubmittingComment, setIsSubmittingComment] = React.useState(false);
+  const [postComments, setPostComments] = React.useState<PostCommentItem[]>([]);
+
+  const reactionPalette = React.useMemo(
+    () => ({
+      passion: {
+        active: isDarkMode ? "#FF8A5B" : "#FF5A2A",
+      },
+      logic: {
+        active: isDarkMode ? "#6EA8FF" : "#1F73FF",
+      },
+      routine: {
+        active: isDarkMode ? "#5BD3AC" : "#0E9F6E",
+      },
+    }),
+    [isDarkMode],
+  );
 
   React.useEffect(() => {
     if (!normalizedPostData) {
@@ -186,14 +340,20 @@ export default function PostDetailScreen() {
           // Keep empty owner identity for non-authenticated or failed auth state.
         }
 
-        const response = await client.graphql({
-          query: getPostQuery,
-          variables: { id: targetPostId },
-        });
+        const [postResponse, likesResponse, savesResponse, commentsResponse] =
+          await Promise.all([
+            client.graphql({
+              query: getPostQuery,
+              variables: { id: targetPostId },
+            }),
+            client.graphql({ query: listPostLikesQuery }),
+            client.graphql({ query: listPostSavesQuery }),
+            client.graphql({ query: listPostCommentsQuery }),
+          ]);
 
         const post =
-          (response as { data?: { getPost?: CloudPost | null } }).data?.getPost ??
-          null;
+          (postResponse as { data?: { getPost?: CloudPost | null } }).data
+            ?.getPost ?? null;
 
         if (!post || !isMounted) {
           return;
@@ -211,6 +371,98 @@ export default function PostDetailScreen() {
           (meUsername.length > 0 && postOwner === meUsername) ||
           (meUsername.length > 0 && postOwner.endsWith(`::${meUsername}`));
         setIsOwnerPost(mine);
+
+        const isOwnedByViewer = (owner?: string | null) => {
+          if (!owner) {
+            return false;
+          }
+          if (meUserId.length > 0 && owner === meUserId) {
+            return true;
+          }
+          if (meUsername.length > 0 && owner === meUsername) {
+            return true;
+          }
+          if (meUsername.length > 0 && owner.endsWith(`::${meUsername}`)) {
+            return true;
+          }
+          if (meUserId.length > 0 && owner.endsWith(`::${meUserId}`)) {
+            return true;
+          }
+          return false;
+        };
+
+        const likesItems =
+          (
+            likesResponse as {
+              data?: { listPostLikes?: { items?: Array<CloudPostLike | null> } };
+            }
+          ).data?.listPostLikes?.items ?? [];
+        const validLikes = likesItems.filter(
+          (item): item is CloudPostLike =>
+            Boolean(item?.id && item.postId === post.id && item.reactionType),
+        );
+        const myReactionIdByType: Partial<Record<ReactionType, string>> = {};
+        validLikes.forEach((item) => {
+          const reactionType = item.reactionType;
+          if (!reactionType) {
+            return;
+          }
+          if (isOwnedByViewer(item.owner)) {
+            myReactionIdByType[reactionType] = item.id;
+          }
+        });
+        setReactionRecordIdByType(myReactionIdByType);
+        setPassionCount(
+          validLikes.filter((item) => item.reactionType === "passion").length,
+        );
+        setLogicCount(
+          validLikes.filter((item) => item.reactionType === "logic").length,
+        );
+        setRoutineCount(
+          validLikes.filter((item) => item.reactionType === "routine").length,
+        );
+
+        const savesItems =
+          (
+            savesResponse as {
+              data?: { listPostSaves?: { items?: Array<CloudPostSave | null> } };
+            }
+          ).data?.listPostSaves?.items ?? [];
+        const validSaves = savesItems.filter(
+          (item): item is CloudPostSave =>
+            Boolean(item?.id && item.postId === post.id),
+        );
+        setSaveCount(validSaves.length);
+        const mySave = validSaves.find((item) => isOwnedByViewer(item.owner));
+        setSaveRecordId(mySave?.id ?? null);
+        setIsSavedByMe(Boolean(mySave));
+
+        const commentItems =
+          (
+            commentsResponse as {
+              data?: {
+                listPostComments?: { items?: Array<CloudPostComment | null> };
+              };
+            }
+          ).data?.listPostComments?.items ?? [];
+        const validComments = commentItems.filter(
+          (item): item is CloudPostComment =>
+            Boolean(item?.id && item.postId === post.id),
+        );
+        setCommentCount(validComments.length);
+        setPostComments(
+          validComments
+            .map((item) => ({
+              id: item.id,
+              owner: item.owner ?? "USER",
+              content: item.content ?? "",
+              createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
+            }))
+            .sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            ),
+        );
 
         const keys = (post.imageKeys ?? []).filter(
           (item): item is string => Boolean(item),
@@ -284,7 +536,7 @@ export default function PostDetailScreen() {
     return () => {
       isMounted = false;
     };
-  }, [client, normalizedPostId, selectedPost?.id]);
+  }, [client, normalizedPostId, refreshTick, selectedPost?.id]);
 
   const targetPostId = normalizedPostId || selectedPost?.id || "";
 
@@ -342,6 +594,12 @@ export default function PostDetailScreen() {
           void (async () => {
             setIsDeleting(true);
             try {
+              // Hide from feeds immediately even if physical delete takes longer.
+              await client.graphql({
+                query: updatePostMutation,
+                variables: { input: { id: targetPostId, isArchived: true } },
+              });
+
               await client.graphql({
                 query: deletePostMutation,
                 variables: { input: { id: targetPostId } },
@@ -360,6 +618,63 @@ export default function PostDetailScreen() {
     ]);
   }, [client, router, targetPostId]);
 
+  const onToggleSave = React.useCallback(async () => {
+    if (!targetPostId) {
+      return;
+    }
+    setIsSavePending(true);
+    try {
+      if (saveRecordId) {
+        await client.graphql({
+          query: deletePostSaveMutation,
+          variables: { input: { id: saveRecordId } },
+        });
+      } else {
+        await client.graphql({
+          query: createPostSaveMutation,
+          variables: { input: { postId: targetPostId } },
+        });
+      }
+      setRefreshTick((prev) => prev + 1);
+    } catch (error) {
+      console.log("[PostDetail] failed to toggle save:", error);
+      Alert.alert("失敗", "保存更新に失敗しました。");
+    } finally {
+      setIsSavePending(false);
+    }
+  }, [client, saveRecordId, targetPostId]);
+
+  const onArchivePost = React.useCallback(async () => {
+    if (!targetPostId) {
+      return;
+    }
+    Alert.alert("アーカイブ", "この投稿をアーカイブしますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "アーカイブする",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            setIsArchiving(true);
+            try {
+              await client.graphql({
+                query: updatePostMutation,
+                variables: { input: { id: targetPostId, isArchived: true } },
+              });
+              Alert.alert("完了", "アーカイブしました。");
+              router.back();
+            } catch (error) {
+              console.log("[PostDetail] failed to archive post:", error);
+              Alert.alert("失敗", "アーカイブに失敗しました。");
+            } finally {
+              setIsArchiving(false);
+            }
+          })();
+        },
+      },
+    ]);
+  }, [client, router, targetPostId]);
+
   const onImageMomentumEnd = React.useCallback(
     (offsetX: number) => {
       if (imageWidth <= 0) {
@@ -370,6 +685,71 @@ export default function PostDetailScreen() {
     },
     [imageWidth],
   );
+
+  const onToggleReaction = React.useCallback(
+    async (reactionType: ReactionType) => {
+      if (!targetPostId) {
+        return;
+      }
+      if (isReactionPendingByType[reactionType]) {
+        return;
+      }
+
+      setIsReactionPendingByType((prev) => ({
+        ...prev,
+        [reactionType]: true,
+      }));
+
+      try {
+        const existingId = reactionRecordIdByType[reactionType];
+        if (existingId) {
+          await client.graphql({
+            query: deletePostLikeMutation,
+            variables: { input: { id: existingId } },
+          });
+        } else {
+          await client.graphql({
+            query: createPostLikeMutation,
+            variables: { input: { postId: targetPostId, reactionType } },
+          });
+        }
+        setRefreshTick((prev) => prev + 1);
+      } catch (error) {
+        console.log("[PostDetail] failed to toggle reaction:", error);
+        Alert.alert("失敗", "リアクション更新に失敗しました。");
+      } finally {
+        setIsReactionPendingByType((prev) => ({
+          ...prev,
+          [reactionType]: false,
+        }));
+      }
+    },
+    [client, isReactionPendingByType, reactionRecordIdByType, targetPostId],
+  );
+
+  const onSubmitComment = React.useCallback(async () => {
+    if (!targetPostId) {
+      return;
+    }
+    const nextComment = commentInput.trim();
+    if (!nextComment) {
+      return;
+    }
+    setIsSubmittingComment(true);
+    try {
+      await client.graphql({
+        query: createPostCommentMutation,
+        variables: { input: { postId: targetPostId, content: nextComment } },
+      });
+      setCommentInput("");
+      setRefreshTick((prev) => prev + 1);
+    } catch (error) {
+      console.log("[PostDetail] failed to submit comment:", error);
+      Alert.alert("失敗", "コメント送信に失敗しました。");
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  }, [client, commentInput, targetPostId]);
 
   return (
     <ScreenContainer backgroundColor={theme.colors.white}>
@@ -496,6 +876,165 @@ export default function PostDetailScreen() {
             <Text style={styles.content}>{content}</Text>
           )}
 
+          <View style={styles.scoreRow}>
+            <Pressable
+              style={[
+                styles.scoreItem,
+                reactionRecordIdByType.passion && styles.scoreItemPassionActive,
+              ]}
+              onPress={() => void onToggleReaction("passion")}
+              disabled={Boolean(isReactionPendingByType.passion)}
+            >
+              <Ionicons
+                name="flame"
+                size={14}
+                color={
+                  reactionRecordIdByType.passion
+                    ? reactionPalette.passion.active
+                    : theme.colors.primary
+                }
+              />
+              <Text
+                style={[
+                  styles.scoreLabel,
+                  reactionRecordIdByType.passion && styles.scoreLabelPassionActive,
+                ]}
+              >
+                {passionCount}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.scoreItem,
+                reactionRecordIdByType.logic && styles.scoreItemLogicActive,
+              ]}
+              onPress={() => void onToggleReaction("logic")}
+              disabled={Boolean(isReactionPendingByType.logic)}
+            >
+              <Ionicons
+                name="bulb"
+                size={14}
+                color={
+                  reactionRecordIdByType.logic
+                    ? reactionPalette.logic.active
+                    : theme.colors.primary
+                }
+              />
+              <Text
+                style={[
+                  styles.scoreLabel,
+                  reactionRecordIdByType.logic && styles.scoreLabelLogicActive,
+                ]}
+              >
+                {logicCount}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.scoreItem,
+                reactionRecordIdByType.routine && styles.scoreItemRoutineActive,
+              ]}
+              onPress={() => void onToggleReaction("routine")}
+              disabled={Boolean(isReactionPendingByType.routine)}
+            >
+              <Ionicons
+                name="ribbon"
+                size={14}
+                color={
+                  reactionRecordIdByType.routine
+                    ? reactionPalette.routine.active
+                    : theme.colors.primary
+                }
+              />
+              <Text
+                style={[
+                  styles.scoreLabel,
+                  reactionRecordIdByType.routine && styles.scoreLabelRoutineActive,
+                ]}
+              >
+                {routineCount}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.engagementRow}>
+            <Pressable
+              style={styles.engagementItem}
+              onPress={() => void onToggleSave()}
+              disabled={isSavePending}
+            >
+              <Ionicons
+                name={isSavedByMe ? "bookmark" : "bookmark-outline"}
+                size={18}
+                color={theme.colors.textSub}
+              />
+              <Text style={styles.engagementText}>{saveCount}</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.engagementItem}
+              onPress={() => setCommentPanelOpen((prev) => !prev)}
+            >
+              <Ionicons
+                name="chatbubble-outline"
+                size={18}
+                color={theme.colors.textSub}
+              />
+              <Text style={styles.engagementText}>{commentCount}</Text>
+            </Pressable>
+
+            {isOwnerPost ? (
+              <Pressable
+                style={styles.engagementItem}
+                onPress={() => void onArchivePost()}
+                disabled={isArchiving}
+              >
+                <Ionicons
+                  name="archive-outline"
+                  size={18}
+                  color={theme.colors.textSub}
+                />
+                <Text style={styles.engagementText}>
+                  {isArchiving ? "処理中" : "アーカイブ"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {commentPanelOpen ? (
+            <View style={styles.commentSection}>
+              <Text style={styles.commentSectionTitle}>コメント</Text>
+              {postComments.length > 0 ? (
+                postComments.map((comment) => (
+                  <View key={comment.id} style={styles.commentItem}>
+                    <Text style={styles.commentOwner} numberOfLines={1}>
+                      {comment.owner}
+                    </Text>
+                    <Text style={styles.commentContent}>{comment.content}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.commentEmpty}>まだコメントがありません</Text>
+              )}
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  value={commentInput}
+                  onChangeText={setCommentInput}
+                  placeholder="コメントを書く"
+                  placeholderTextColor={theme.colors.textSub}
+                  style={styles.commentInput}
+                />
+                <Pressable
+                  style={styles.commentSendButton}
+                  onPress={() => void onSubmitComment()}
+                  disabled={isSubmittingComment}
+                >
+                  <Ionicons name="send" size={14} color={theme.colors.white} />
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           {isOwnerPost ? (
             <View style={styles.actionRow}>
               {isEditMode ? (
@@ -534,7 +1073,7 @@ export default function PostDetailScreen() {
   );
 }
 
-const createStyles = () =>
+const createStyles = (isDarkMode: boolean) =>
   StyleSheet.create({
     headerRow: {
       flexDirection: "row",
@@ -586,7 +1125,7 @@ const createStyles = () =>
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "rgba(0,0,0,0.22)",
+      backgroundColor: isDarkMode ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.22)",
     },
     imageDotActive: {
       backgroundColor: theme.colors.primary,
@@ -600,7 +1139,7 @@ const createStyles = () =>
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      backgroundColor: "rgba(0,0,0,0.55)",
+      backgroundColor: isDarkMode ? "rgba(0,0,0,0.58)" : "rgba(20,20,20,0.5)",
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 999,
@@ -626,6 +1165,132 @@ const createStyles = () =>
       color: theme.colors.text,
       fontSize: 15,
       lineHeight: 22,
+    },
+    scoreRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing.sm,
+      marginTop: theme.spacing.sm,
+    },
+    scoreItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: 6,
+      borderRadius: theme.radius.pill,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: "transparent",
+    },
+    scoreItemPassionActive: {
+      backgroundColor: isDarkMode ? "#3B2118" : "#FFF1EA",
+      borderColor: isDarkMode ? "#8F533D" : "#FFC8B8",
+    },
+    scoreItemLogicActive: {
+      backgroundColor: isDarkMode ? "#1A2940" : "#EEF4FF",
+      borderColor: isDarkMode ? "#4C78B8" : "#BFD7FF",
+    },
+    scoreItemRoutineActive: {
+      backgroundColor: isDarkMode ? "#18362C" : "#EAF8F2",
+      borderColor: isDarkMode ? "#4BA586" : "#BEEBD8",
+    },
+    scoreLabelPassionActive: {
+      color: isDarkMode ? "#FF9F7A" : "#C63D14",
+    },
+    scoreLabelLogicActive: {
+      color: isDarkMode ? "#8AB7FF" : "#1F56C4",
+    },
+    scoreLabelRoutineActive: {
+      color: isDarkMode ? "#83D9BB" : "#0C7A56",
+    },
+    scoreItemDisabled: {
+      opacity: 0.55,
+    },
+    scoreItemActive: {
+      backgroundColor: "#FFF4E8",
+      borderWidth: 1,
+      borderColor: "#F7C99B",
+    },
+    scoreLabel: {
+      color: theme.colors.text,
+      fontSize: 13,
+      fontWeight: "800",
+    },
+    engagementRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing.md,
+      marginTop: theme.spacing.xs,
+    },
+    engagementItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingVertical: 4,
+    },
+    engagementText: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    commentSection: {
+      marginTop: theme.spacing.sm,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      padding: theme.spacing.sm,
+      gap: theme.spacing.xs,
+    },
+    commentSectionTitle: {
+      color: theme.colors.text,
+      fontSize: 13,
+      fontWeight: "800",
+    },
+    commentItem: {
+      paddingVertical: 4,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.surface,
+    },
+    commentOwner: {
+      color: theme.colors.textSub,
+      fontSize: 11,
+      fontWeight: "700",
+      marginBottom: 2,
+    },
+    commentContent: {
+      color: theme.colors.text,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    commentEmpty: {
+      color: theme.colors.textSub,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    commentInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.spacing.xs,
+      marginTop: theme.spacing.xs,
+    },
+    commentInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+      color: theme.colors.text,
+      fontSize: 13,
+    },
+    commentSendButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.primary,
     },
     imageEditWrap: {
       marginBottom: theme.spacing.sm,
@@ -658,7 +1323,7 @@ const createStyles = () =>
       borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: "rgba(0,0,0,0.75)",
+      backgroundColor: isDarkMode ? "rgba(0,0,0,0.75)" : "rgba(0,0,0,0.62)",
     },
     noImageText: {
       color: theme.colors.textSub,

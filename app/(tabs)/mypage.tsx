@@ -54,6 +54,7 @@ type CloudPost = {
   content?: string | null;
   imageKey?: string | null;
   imageKeys?: Array<string | null> | null;
+  isArchived?: boolean | null;
   createdAt?: string | null;
 };
 
@@ -90,6 +91,7 @@ const listMyPostsQuery = /* GraphQL */ `
         content
         imageKey
         imageKeys
+        isArchived
         createdAt
       }
     }
@@ -229,15 +231,13 @@ export default function MyPageScreen() {
 
       const normalizedOwnPosts = allPosts
         .filter((item): item is CloudPost =>
-          Boolean(item?.id && isOwnedByMe(item.owner)),
+          Boolean(item?.id && isOwnedByMe(item.owner) && item.isArchived !== true),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return bTime - aTime;
         });
-
-      setPostCount(normalizedOwnPosts.length);
 
       const galleryCandidates = normalizedOwnPosts
         .map((item) => {
@@ -314,9 +314,11 @@ export default function MyPageScreen() {
         }),
       );
 
-      setPosts(
-        resolvedGallery.filter((item): item is GalleryPost => Boolean(item)),
+      const nextPosts = resolvedGallery.filter(
+        (item): item is GalleryPost => Boolean(item),
       );
+      setPosts(nextPosts);
+      setPostCount(nextPosts.length);
 
       const follows =
         (
