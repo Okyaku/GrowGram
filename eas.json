@@ -6,13 +6,16 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "prebuild": "amplify pull --allow-unauthenticated false"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "prebuild": "amplify pull --allow-unauthenticated false"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "prebuild": "amplify pull --allow-unauthenticated false"
     }
   },
   "submit": {
