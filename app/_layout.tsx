@@ -68,6 +68,7 @@ export default function RootLayout() {
         <Stack.Screen name="chat/index" />
         <Stack.Screen name="profile/[userId]" />
         <Stack.Screen name="chat/[userId]" />
+        <Stack.Screen name="follow-list" />
         <Stack.Screen
           name="story/[storyId]"
           options={{
