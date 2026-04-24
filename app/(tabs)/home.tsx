@@ -475,8 +475,7 @@ export default function HomeScreen() {
   const { registerScrollToTop } = useTabScrollTop();
   const scrollViewRef = React.useRef<ScrollView | null>(null);
   const scrollY = React.useRef(new Animated.Value(0)).current;
-  const { canCreatePost, streakDays, level, totalScore, adjustScore } =
-    useRoadmap();
+  const { streakDays, level, totalScore, adjustScore } = useRoadmap();
   const [currentOwner, setCurrentOwner] = React.useState("");
   const [posts, setPosts] = React.useState<FeedPost[]>(fallbackPosts);
   const [stories, setStories] = React.useState<StoryItem[]>([]);
@@ -986,7 +985,8 @@ export default function HomeScreen() {
             userId: postOwner,
             userName:
               profile?.displayName ||
-              profile?.username || postOwner.split("@")[0].toUpperCase(),
+              profile?.username ||
+              postOwner.split("@")[0].toUpperCase(),
             userAvatar: profile?.avatarUrl,
             title: item.title ?? "USER POST",
             image:
@@ -1771,11 +1771,7 @@ export default function HomeScreen() {
               <View style={styles.brandRow}>
                 <Pressable
                   style={styles.brandAddButton}
-                  onPress={() =>
-                    router.push(
-                      canCreatePost ? "/post-create" : "/(tabs)/create",
-                    )
-                  }
+                  onPress={() => router.push("/post-create")}
                 >
                   <Ionicons name="add" size={18} color={theme.colors.primary} />
                 </Pressable>
