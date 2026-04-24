@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
@@ -48,14 +48,18 @@ type CloudPost = {
   content?: string | null;
   imageKey?: string | null;
   imageKeys?: Array<string | null> | null;
+  isArchived?: boolean | null;
   createdAt?: string | null;
 };
 
 type GalleryPost = {
   id: string;
+  owner: string;
   title: string;
   content: string;
   imageUrl: string;
+  imageUrls: string[];
+  imageKeys: string[];
   createdAt: string;
 };
 
@@ -81,6 +85,7 @@ const listMyPostsQuery = /* GraphQL */ `
         content
         imageKey
         imageKeys
+        isArchived
         createdAt
       }
     }
@@ -133,9 +138,31 @@ export default function MyPageScreen() {
     try {
       const authUser = await getCurrentUser();
       const userId = authUser.userId;
+      const username = authUser.username ?? "";
       if (!userId) {
         return;
       }
+
+      const isOwnedByMe = (recordOwner?: string | null) => {
+        if (!recordOwner) {
+          return false;
+        }
+
+        if (recordOwner === userId) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner === username) {
+          return true;
+        }
+        if (username.length > 0 && recordOwner.endsWith(`::${username}`)) {
+          return true;
+        }
+        if (recordOwner.endsWith(`::${userId}`)) {
+          return true;
+        }
+
+        return false;
+      };
 
       const [profileResponse, postsResponse, followsResponse] =
         await Promise.all([
@@ -184,7 +211,9 @@ export default function MyPageScreen() {
 
       const normalizedOwnPosts = allPosts
         .filter((item): item is CloudPost =>
-          Boolean(item?.id && (item.owner ?? "") === authUser.username),
+          Boolean(
+            item?.id && isOwnedByMe(item.owner) && item.isArchived !== true,
+          ),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -192,19 +221,21 @@ export default function MyPageScreen() {
           return bTime - aTime;
         });
 
-      setPostCount(normalizedOwnPosts.length);
-
       const galleryCandidates = normalizedOwnPosts
         .map((item) => {
           const keys = (item.imageKeys ?? []).filter((key): key is string =>
             Boolean(key),
           );
-          const primaryImage = keys[0] ?? item.imageKey ?? null;
+          const imageSources =
+            keys.length > 0 ? keys : item.imageKey ? [item.imageKey] : [];
+          const primaryImage = imageSources[0] ?? null;
           return {
             id: item.id,
+            owner: item.owner ?? "",
             title: item.title ?? "",
             content: item.content ?? "",
             createdAt: item.createdAt ?? "",
+            imageSources,
             primaryImage,
           };
         })
@@ -212,35 +243,66 @@ export default function MyPageScreen() {
 
       const resolvedGallery = await Promise.all(
         galleryCandidates.map(async (item) => {
-          const source = item.primaryImage as string;
-          if (source.startsWith("http://") || source.startsWith("https://")) {
+          const resolvedSources = await Promise.all(
+            item.imageSources.map(async (source) => {
+              if (
+                source.startsWith("http://") ||
+                source.startsWith("https://")
+              ) {
+                return source;
+              }
+
+              try {
+                const resolved = await getUrl({ path: source });
+                return resolved.url.toString();
+              } catch {
+                return null;
+              }
+            }),
+          );
+
+          const safeImageUrls = resolvedSources.filter((url): url is string =>
+            Boolean(url),
+          );
+
+          if (safeImageUrls.length === 0) {
+            return null;
+          }
+
+          if (
+            item.primaryImage?.startsWith("http://") ||
+            item.primaryImage?.startsWith("https://")
+          ) {
             return {
               id: item.id,
+              owner: item.owner,
               title: item.title,
               content: item.content,
               createdAt: item.createdAt,
-              imageUrl: source,
+              imageUrl: safeImageUrls[0],
+              imageUrls: safeImageUrls,
+              imageKeys: item.imageSources,
             } satisfies GalleryPost;
           }
 
-          try {
-            const resolved = await getUrl({ path: source });
-            return {
-              id: item.id,
-              title: item.title,
-              content: item.content,
-              createdAt: item.createdAt,
-              imageUrl: resolved.url.toString(),
-            } satisfies GalleryPost;
-          } catch {
-            return null;
-          }
+          return {
+            id: item.id,
+            owner: item.owner,
+            title: item.title,
+            content: item.content,
+            createdAt: item.createdAt,
+            imageUrl: safeImageUrls[0],
+            imageUrls: safeImageUrls,
+            imageKeys: item.imageSources,
+          } satisfies GalleryPost;
         }),
       );
 
-      setPosts(
-        resolvedGallery.filter((item): item is GalleryPost => Boolean(item)),
+      const nextPosts = resolvedGallery.filter((item): item is GalleryPost =>
+        Boolean(item),
       );
+      setPosts(nextPosts);
+      setPostCount(nextPosts.length);
 
       const follows =
         (
@@ -266,6 +328,13 @@ export default function MyPageScreen() {
       setIsLoadingPosts(false);
     }
   }, [client]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setIsLoadingPosts(true);
+      void loadMyPageData();
+    }, [loadMyPageData]),
+  );
 
   React.useEffect(() => {
     setIsLoadingPosts(true);
@@ -370,12 +439,18 @@ export default function MyPageScreen() {
           renderItem={({ item, index }) => (
             <TouchableOpacity
               activeOpacity={0.9}
-              onPress={() =>
+              onPress={() => {
+                if (__DEV__) {
+                  console.log("[MyPage] selected post:", item);
+                }
                 router.push({
                   pathname: "/post/[postId]",
-                  params: { postId: item.id },
-                })
-              }
+                  params: {
+                    postId: item.id,
+                    postData: JSON.stringify(item),
+                  },
+                });
+              }}
               style={[
                 styles.galleryItemTouch,
                 (index + 1) % GRID_COLUMNS !== 0 && styles.galleryItemRightGap,
