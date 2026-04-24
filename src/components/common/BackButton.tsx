@@ -7,15 +7,25 @@ import React, { ReactNode } from "react";
 
 type Props = {
   children?: ReactNode;
+  onPress?: () => void;
 };
 
 export const BackButton = (props: Props) => {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
-  const { children } = props;
+  const { children, onPress } = props;
   return (
     <View style={styles.headerRow}>
-      <Pressable style={styles.backBtn} onPress={() => router.back()}>
+      <Pressable
+        style={styles.backBtn}
+        onPress={() => {
+          if (onPress) {
+            onPress();
+            return;
+          }
+          router.back();
+        }}
+      >
         <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
       </Pressable>
       {children}
