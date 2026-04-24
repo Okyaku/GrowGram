@@ -19,6 +19,7 @@ import {
 import { Text } from "../src/components/common/Typography";
 import { useRoadmap } from "../src/store/roadmap-context";
 import { theme } from "../src/theme";
+import { BackButton } from "../src/components/common/BackButton";
 
 const createPostMutation = /* GraphQL */ `
   mutation CreatePost($input: CreatePostInput!) {
@@ -229,6 +230,7 @@ export default function PostCreateScreen() {
   if (!canCreatePost) {
     return (
       <ScreenContainer>
+        <BackButton onPress={() => router.replace("/(tabs)/home")} />
         <Text style={styles.title}>通常投稿</Text>
         <View style={styles.lockCard}>
           <Text style={styles.lockText}>現在は投稿がロック中です。</Text>
@@ -246,6 +248,7 @@ export default function PostCreateScreen() {
 
   return (
     <ScreenContainer>
+      <BackButton onPress={() => router.replace("/(tabs)/home")} />
       <Text style={styles.title}>通常投稿</Text>
       <Text style={styles.credit}>残り投稿可能回数: {postCredits}</Text>
 

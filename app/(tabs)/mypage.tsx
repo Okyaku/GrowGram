@@ -381,14 +381,32 @@ export default function MyPageScreen() {
             <Text style={styles.statNumber}>{postCount}</Text>
             <Text style={styles.statLabel}>投稿</Text>
           </View>
-          <View style={styles.statItem}>
+          <Pressable
+            accessibilityRole="button"
+            style={styles.statItem}
+            onPress={() =>
+              router.push({
+                pathname: "/follow-list",
+                params: { initialTab: "following" },
+              })
+            }
+          >
             <Text style={styles.statNumber}>{followingCount}</Text>
             <Text style={styles.statLabel}>フォロー</Text>
-          </View>
-          <View style={styles.statItem}>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            style={styles.statItem}
+            onPress={() =>
+              router.push({
+                pathname: "/follow-list",
+                params: { initialTab: "followers" },
+              })
+            }
+          >
             <Text style={styles.statNumber}>{followersCount}</Text>
             <Text style={styles.statLabel}>フォロワー</Text>
-          </View>
+          </Pressable>
         </View>
         <CustomButton
           label="プロフィールを編集"

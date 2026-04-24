@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, useRouter, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getCurrentUser } from "aws-amplify/auth";
 import { Text } from "../../src/components/common/Typography";
@@ -53,12 +53,45 @@ type TabsStyles = ReturnType<typeof createStyles>;
 function NativeTabsLayout({ styles }: { styles: TabsStyles }) {
   const { postCredits } = useRoadmap();
   const { scrollToTop } = useTabScrollTop();
+  const segments = useSegments();
   const pagerRef = React.useRef<any>(null);
   const [currentPage, setCurrentPage] = React.useState(0);
+  const syncTargetPageRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    const activeSegment = segments[segments.length - 1];
+    if (typeof activeSegment !== "string") {
+      return;
+    }
+
+    const tabIndex = tabs.findIndex((tab) => tab.name === activeSegment);
+    if (tabIndex < 0) {
+      return;
+    }
+
+    syncTargetPageRef.current = tabIndex;
+    setCurrentPage(tabIndex);
+    pagerRef.current?.setPageWithoutAnimation?.(tabIndex);
+  }, [segments]);
 
   const handlePageSelected = (e: any) => {
-    setCurrentPage(e.nativeEvent.position);
-    scrollToTop(tabs[e.nativeEvent.position]?.name ?? "home");
+    const nextPage = e.nativeEvent.position;
+
+    const syncingPage = syncTargetPageRef.current;
+    if (syncingPage !== null) {
+      if (nextPage !== syncingPage) {
+        return;
+      }
+      syncTargetPageRef.current = null;
+    }
+
+    if (nextPage === currentPage) {
+      return;
+    }
+
+    const tabName = tabs[nextPage]?.name ?? "home";
+    setCurrentPage(nextPage);
+    scrollToTop(tabName);
   };
 
   return (
