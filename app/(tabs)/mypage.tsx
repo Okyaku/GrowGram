@@ -41,12 +41,6 @@ type CloudFollow = {
   followingId: string;
 };
 
-type CloudSave = {
-  id: string;
-  owner?: string | null;
-  postId: string;
-};
-
 type CloudPost = {
   id: string;
   owner?: string | null;
@@ -110,18 +104,6 @@ const listFollowsQuery = /* GraphQL */ `
   }
 `;
 
-const listPostSavesQuery = /* GraphQL */ `
-  query ListPostSaves {
-    listPostSaves(limit: 2000) {
-      items {
-        id
-        owner
-        postId
-      }
-    }
-  }
-`;
-
 export default function MyPageScreen() {
   const styles = React.useMemo(() => createStyles(), []);
   const router = useRouter();
@@ -141,7 +123,6 @@ export default function MyPageScreen() {
   const [postCount, setPostCount] = React.useState(0);
   const [followersCount, setFollowersCount] = React.useState(0);
   const [followingCount, setFollowingCount] = React.useState(0);
-  const [savedCount, setSavedCount] = React.useState(0);
   const [posts, setPosts] = React.useState<GalleryPost[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = React.useState(true);
 
@@ -183,12 +164,11 @@ export default function MyPageScreen() {
         return false;
       };
 
-      const [profileResponse, postsResponse, followsResponse, savesResponse] =
+      const [profileResponse, postsResponse, followsResponse] =
         await Promise.all([
           client.graphql({ query: getProfileQuery, variables: { id: userId } }),
           client.graphql({ query: listMyPostsQuery }),
           client.graphql({ query: listFollowsQuery }),
-          client.graphql({ query: listPostSavesQuery }),
         ]);
 
       const profile =
@@ -231,7 +211,9 @@ export default function MyPageScreen() {
 
       const normalizedOwnPosts = allPosts
         .filter((item): item is CloudPost =>
-          Boolean(item?.id && isOwnedByMe(item.owner) && item.isArchived !== true),
+          Boolean(
+            item?.id && isOwnedByMe(item.owner) && item.isArchived !== true,
+          ),
         )
         .sort((a, b) => {
           const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -245,11 +227,7 @@ export default function MyPageScreen() {
             Boolean(key),
           );
           const imageSources =
-            keys.length > 0
-              ? keys
-              : item.imageKey
-                ? [item.imageKey]
-                : [];
+            keys.length > 0 ? keys : item.imageKey ? [item.imageKey] : [];
           const primaryImage = imageSources[0] ?? null;
           return {
             id: item.id,
@@ -267,7 +245,10 @@ export default function MyPageScreen() {
         galleryCandidates.map(async (item) => {
           const resolvedSources = await Promise.all(
             item.imageSources.map(async (source) => {
-              if (source.startsWith("http://") || source.startsWith("https://")) {
+              if (
+                source.startsWith("http://") ||
+                source.startsWith("https://")
+              ) {
                 return source;
               }
 
@@ -280,15 +261,18 @@ export default function MyPageScreen() {
             }),
           );
 
-          const safeImageUrls = resolvedSources.filter(
-            (url): url is string => Boolean(url),
+          const safeImageUrls = resolvedSources.filter((url): url is string =>
+            Boolean(url),
           );
 
           if (safeImageUrls.length === 0) {
             return null;
           }
 
-          if (item.primaryImage?.startsWith("http://") || item.primaryImage?.startsWith("https://")) {
+          if (
+            item.primaryImage?.startsWith("http://") ||
+            item.primaryImage?.startsWith("https://")
+          ) {
             return {
               id: item.id,
               owner: item.owner,
@@ -314,8 +298,8 @@ export default function MyPageScreen() {
         }),
       );
 
-      const nextPosts = resolvedGallery.filter(
-        (item): item is GalleryPost => Boolean(item),
+      const nextPosts = resolvedGallery.filter((item): item is GalleryPost =>
+        Boolean(item),
       );
       setPosts(nextPosts);
       setPostCount(nextPosts.length);
@@ -334,19 +318,6 @@ export default function MyPageScreen() {
       );
       setFollowingCount(
         normalizedFollows.filter((item) => item.followerId === userId).length,
-      );
-
-      const saves =
-        (
-          savesResponse as {
-            data?: { listPostSaves?: { items?: Array<CloudSave | null> } };
-          }
-        ).data?.listPostSaves?.items ?? [];
-      const normalizedSaves = saves.filter((item): item is CloudSave =>
-        Boolean(item?.id && item.postId),
-      );
-      setSavedCount(
-        normalizedSaves.filter((item) => isOwnedByMe(item.owner)).length,
       );
     } catch (error) {
       if (__DEV__) {
@@ -409,10 +380,6 @@ export default function MyPageScreen() {
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{postCount}</Text>
             <Text style={styles.statLabel}>投稿</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{savedCount}</Text>
-            <Text style={styles.statLabel}>保存</Text>
           </View>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{followingCount}</Text>
