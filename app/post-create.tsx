@@ -230,7 +230,7 @@ export default function PostCreateScreen() {
   if (!canCreatePost) {
     return (
       <ScreenContainer>
-        <BackButton />
+        <BackButton onPress={() => router.replace("/(tabs)/home")} />
         <Text style={styles.title}>通常投稿</Text>
         <View style={styles.lockCard}>
           <Text style={styles.lockText}>現在は投稿がロック中です。</Text>
@@ -248,7 +248,7 @@ export default function PostCreateScreen() {
 
   return (
     <ScreenContainer>
-      <BackButton />
+      <BackButton onPress={() => router.replace("/(tabs)/home")} />
       <Text style={styles.title}>通常投稿</Text>
       <Text style={styles.credit}>残り投稿可能回数: {postCredits}</Text>
 
