@@ -1048,59 +1048,96 @@ export default function HomeScreen() {
         setPosts(fallbackPosts);
       }
 
-      // ⭕️ 全ストーリーをユーザー単位でグループ化（1つ目が消えないようにする）
-      const storyGroups = new Map<string, any[]>();
-      storyItems
-        .filter((item: any) => Boolean(item?.id && item.imageKey))
-        .filter((item: any) => {
-          if (!item.createdAt) return true;
-          return Date.now() - new Date(item.createdAt).getTime() < 24 * 60 * 60 * 1000;
-        })
-        .forEach((item: any) => {
-          const o = item.owner ?? "";
-          const existing = storyGroups.get(o) ?? [];
-          storyGroups.set(o, [...existing, item]);
-        });
+      // ⭕️ ストーリー取得ロジックを関数化（爆速表示対応）
+      const buildStoryList = async () => {
+        const storyGroups = new Map<string, any[]>();
+        
+        // 1️⃣ ユーザー単位でストーリーをグループ化
+        storyItems
+          .filter((item: any) => Boolean(item?.id && item.imageKey))
+          .filter((item: any) => {
+            if (!item.createdAt) return true;
+            return Date.now() - new Date(item.createdAt).getTime() < 24 * 60 * 60 * 1000;
+          })
+          .forEach((item: any) => {
+            const userOwner = item.owner ?? "";
+            const existing = storyGroups.get(userOwner) ?? [];
+            storyGroups.set(userOwner, [...existing, item]);
+          });
 
-      const storyList = await Promise.all(
-        Array.from(storyGroups.entries()).map(async ([o, items]) => {
-          // 日付順に並び替え
-          const sorted = items.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        // 2️⃣ 各ユーザーのストーリーをCloudFront URL解決＆prefetch
+        const storyList = await Promise.all(
+          Array.from(storyGroups.entries()).map(async ([userOwner, items]) => {
+            const sorted = items.sort(
+              (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+            );
 
-          // 詳細画面でロードを発生させないため、ここで全画像のURLを解決する
-          const itemsWithUrls = await Promise.all(sorted.map(async (st) => {
-            const res = await getUrl({ path: st.imageKey });
-            return {
-              ...st,
-              imageUrl: toCloudFrontImageUrl(st.imageKey, res.url.toString()),
-              userName: profileByOwner.get(o)?.displayName || profileByOwner.get(o)?.username || o.split('@')[0].toUpperCase()
+            // CloudFront URL 解決とメタデータ付与
+            const itemsWithUrls = await Promise.all(
+              sorted.map(async (st) => {
+                const res = await getUrl({ path: st.imageKey });
+                const imageUrl = toCloudFrontImageUrl(st.imageKey, res.url.toString());
+                return {
+                  ...st,
+                  imageUrl,
+                  userName:
+                    profileByOwner.get(userOwner)?.displayName ||
+                    profileByOwner.get(userOwner)?.username ||
+                    userOwner.split("@")[0].toUpperCase(),
+                };
+              })
+            );
+
+            // 3️⃣ 全ストーリー画像を prefetch（ディスク・メモリキャッシュ対応）
+            await Promise.all(
+              itemsWithUrls.map(async (story) => {
+                try {
+                  await Image.prefetch(story.imageUrl);
+                } catch {
+                  // prefetch 失敗は無視（UIブロッキング防止）
+                }
+              })
+            );
+
+            const profile = profileByOwner.get(userOwner) as any;
+            const storyItem = {
+              id: itemsWithUrls[0].id,
+              owner: userOwner,
+              userName: profile?.displayName || profile?.username || userOwner.split("@")[0].toUpperCase(),
+              image: itemsWithUrls[itemsWithUrls.length - 1].imageUrl,
+              active: true,
+              allStories: itemsWithUrls,
             };
-          }));
+            return storyItem;
+          })
+        );
+        
+        return storyList;
+      };
 
-          const profile = profileByOwner.get(o) as any;
-          return {
-            id: itemsWithUrls[0].id, // 最初のストーリーのIDを識別子にする
-            owner: o,
-            userName: profile?.displayName || profile?.username || o.split('@')[0].toUpperCase(),
-            image: itemsWithUrls[itemsWithUrls.length - 1].imageUrl, // サムネは最新画像
-            active: true,
-            allStories: itemsWithUrls // ⭕️ これが重要！全データを詳細に引き渡す
-          };
-        })
-      );
+      const storyList = await buildStoryList();
 
+      // 4️⃣ 自分のプロフィール画像は非ブロッキング表示対応
       const myProfile = profileByOwner.get(owner) as any;
-      const myStoryItem = storyList.find(s => s.owner === owner) || {
+      const myStoryItem = storyList.find((s) => s.owner === owner) || {
         id: "my-create",
         owner,
         userName: myProfile?.displayName || "MY GROW",
-        // 仮画像を廃止し、プロフィール画像がある時だけ出す。ない時は背景色だけで待つ（こっちの方が綺麗）
         image: myProfile?.avatarUrl || "",
         active: true,
-        allStories: []
+        allStories: [] as any[],
       };
+      
+      // 自分のアバター画像も prefetch（存在する場合）
+      if (myProfile?.avatarUrl) {
+        try {
+          await Image.prefetch(myProfile.avatarUrl);
+        } catch {
+          // prefetch 失敗は無視
+        }
+      }
 
-      const others = storyList.filter(s => s.owner !== owner);
+      const others = storyList.filter((s) => s.owner !== owner);
       setStories([myStoryItem, ...others] as any);
       hasLoadedInitialFeedRef.current = true;
       setIsInitialFeedLoading(false);
@@ -1723,24 +1760,41 @@ export default function HomeScreen() {
   );
 
   const openStoryWithInitialData = React.useCallback((targetId: string) => {
-    // ユーザーの塊（StoryItem）の中から、対象のストーリーを持っている塊を探す
-    const matchedGroup = stories.find((s: any) =>
-      s.id === targetId || (s.allStories && s.allStories.some((as: any) => as.id === targetId))
+    const matchedGroup = stories.find(
+      (s: any) =>
+        s.id === targetId ||
+        (s.allStories && s.allStories.some((as: any) => as.id === targetId))
     );
 
     if (!matchedGroup || !matchedGroup.allStories || matchedGroup.allStories.length === 0) return;
 
-    // ⭕️ そのユーザーの全ストーリーをメモリに載せる（これで2枚目も消えない！）
+    // 5️⃣ globalThis に全ストーリーデータをセット（URL長制限回避）
     (globalThis as any).sharedStoryQueue = matchedGroup.allStories;
 
-    // タップしたストーリーが配列の何番目か計算する
     const idx = matchedGroup.allStories.findIndex((as: any) => as.id === targetId);
+
+    // 6️⃣ globalThis 設定と同時に段階先読み prefetch（スワイプ対応）
+    const activeAndNext = matchedGroup.allStories.slice(
+      idx,
+      Math.min(idx + 2, matchedGroup.allStories.length)
+    );
+    Promise.all(
+      activeAndNext.map((story) => {
+        try {
+          return Image.prefetch(story.imageUrl || "");
+        } catch {
+          return Promise.resolve();
+        }
+      })
+    ).catch(() => {
+      // 非同期 prefetch 失敗は無視
+    });
 
     router.push({
       pathname: "/story/[storyId]",
       params: {
         storyId: targetId,
-        initialIndex: String(Math.max(0, idx)) // ⭕️ 正しい開始位置を伝える
+        initialIndex: String(Math.max(0, idx)),
       },
     });
   }, [router, stories]);

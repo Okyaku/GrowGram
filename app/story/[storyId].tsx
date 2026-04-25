@@ -49,7 +49,11 @@ type StoryReaction = {
 };
 
 type ReactionType = "passion" | "logic" | "routine";
-type StoryQueueItem = CloudStory & { imageUrl: string };
+type StoryQueueItem = CloudStory & {
+  imageUrl: string;
+  userName?: string;
+  userAvatar?: string;
+};
 
 const STORY_DURATION_MS = 5000;
 const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
@@ -216,17 +220,66 @@ export default function StoryViewScreen() {
   const storyId = rawParams.storyId;
   const initialIndex = rawParams.initialIndex;
 
-  // メモリからデータをノーダメージで受け取る
-  const memoryQueue = (globalThis as any).sharedStoryQueue;
-  const storyQueueParam = memoryQueue ? JSON.stringify(memoryQueue) : undefined;
-  const imageUrl = memoryQueue ? memoryQueue[Number(initialIndex || 0)]?.imageUrl : undefined;
+  // メモリから受け取った全ストーリーをそのまま復元（API再取得なし）
+  const memoryQueue = (globalThis as any).sharedStoryQueue as
+    | Array<Partial<StoryQueueItem>>
+    | undefined;
 
-  // memoryQueue（送られてきたデータ）があるなら false、ないなら true で開始
-  const [isLoading, setIsLoading] = React.useState(!memoryQueue);
+  const preloadedStoryQueue = React.useMemo(() => {
+    if (!Array.isArray(memoryQueue)) {
+      return [] as StoryQueueItem[];
+    }
+
+    return memoryQueue
+      .filter(
+        (item): item is StoryQueueItem =>
+          Boolean(item?.id && item.imageKey && item.imageUrl),
+      )
+      .map((item) => ({
+        id: item.id,
+        owner: item.owner ?? "",
+        imageKey: item.imageKey,
+        caption: item.caption ?? null,
+        createdAt: item.createdAt ?? null,
+        updatedAt: item.updatedAt ?? null,
+        imageUrl: item.imageUrl,
+        userName: item.userName,
+        userAvatar: item.userAvatar,
+      }));
+  }, [memoryQueue]);
+
+  const preloadedIndex = Number.parseInt(initialIndex ?? "0", 10);
+  const normalizedInitialIndex = Number.isNaN(preloadedIndex)
+    ? 0
+    : preloadedIndex;
+  const initialPreloadedActiveIndex = React.useMemo(() => {
+    if (preloadedStoryQueue.length === 0) {
+      return 0;
+    }
+
+    const byIdIndex = preloadedStoryQueue.findIndex(
+      (item) => item.id === storyId,
+    );
+    const active = byIdIndex >= 0 ? byIdIndex : normalizedInitialIndex;
+    return Math.max(0, Math.min(preloadedStoryQueue.length - 1, active));
+  }, [normalizedInitialIndex, preloadedStoryQueue, storyId]);
+  const preloadedImageUrl =
+    preloadedStoryQueue[
+      Math.max(0, Math.min(preloadedStoryQueue.length - 1, normalizedInitialIndex))
+    ]?.imageUrl ?? "";
+
+  // 初期データがある場合はローディングを出さない
+  const [isLoading, setIsLoading] = React.useState(
+    preloadedStoryQueue.length === 0,
+  );
   
   // ーーー ここから下はそのまま ーーー
-  const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>([]);
-  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>(
+    preloadedStoryQueue,
+  );
+  const [activeIndex, setActiveIndex] = React.useState(
+    initialPreloadedActiveIndex,
+  );
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
   const [profileAvatarUrl, setProfileAvatarUrl] = React.useState<string | null>(
     null,
@@ -245,8 +298,8 @@ export default function StoryViewScreen() {
   >({});
   const [message, setMessage] = React.useState("");
   const [isSendingMessage, setIsSendingMessage] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
   const [isPlaybackPaused, setIsPlaybackPaused] = React.useState(false);
+  const [progressBarWidth, setProgressBarWidth] = React.useState(0);
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     label: string;
     icon: "flame" | "bulb" | "ribbon";
@@ -259,7 +312,10 @@ export default function StoryViewScreen() {
     null,
   );
   const prefetchedStoryImageUrlsRef = React.useRef<Set<string>>(new Set());
-  const openProgress = React.useRef(new Animated.Value(0)).current;
+  const progressAnimValue = React.useRef(new Animated.Value(0)).current;
+  const progressAnimationRef = React.useRef<Animated.CompositeAnimation | null>(
+    null,
+  );
   const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const suppressTapRef = React.useRef(false);
   const story = storyQueue[activeIndex] ?? null;
@@ -281,72 +337,30 @@ export default function StoryViewScreen() {
       }),
     [dragY],
   );
-  const openingScale = React.useMemo(
+  const currentProgressScaleX = React.useMemo(
     () =>
-      openProgress.interpolate({
+      progressAnimValue.interpolate({
         inputRange: [0, 1],
-        outputRange: [0.92, 1],
+        outputRange: [0.0001, 1],
+        extrapolate: "clamp",
       }),
-    [openProgress],
+    [progressAnimValue],
   );
-  const openingOpacity = React.useMemo(
+  const currentProgressTranslateX = React.useMemo(
     () =>
-      openProgress.interpolate({
+      progressAnimValue.interpolate({
         inputRange: [0, 1],
-        outputRange: [0.86, 1],
+        outputRange: [-(progressBarWidth / 2), 0],
+        extrapolate: "clamp",
       }),
-    [openProgress],
+    [progressAnimValue, progressBarWidth],
   );
   const closeStoryView = React.useCallback(() => {
     router.back();
   }, [router]);
 
-  const preloadedStoryQueue = React.useMemo(() => {
-    if (!storyQueueParam) {
-      return [] as StoryQueueItem[];
-    }
-
-    try {
-      const parsed = JSON.parse(storyQueueParam) as Array<
-        Partial<StoryQueueItem>
-      >;
-      if (!Array.isArray(parsed)) {
-        return [] as StoryQueueItem[];
-      }
-
-      return parsed
-        .filter(
-          (item): item is StoryQueueItem =>
-            Boolean(item?.id && item.imageKey && item.imageUrl),
-        )
-        .map((item) => ({
-          id: item.id,
-          owner: item.owner ?? "",
-          imageKey: item.imageKey,
-          caption: item.caption ?? null,
-          createdAt: item.createdAt ?? null,
-          updatedAt: item.updatedAt ?? null,
-          imageUrl: item.imageUrl,
-        }));
-    } catch {
-      return [] as StoryQueueItem[];
-    }
-  }, [storyQueueParam]);
-
   const loadProfileByOwner = React.useCallback(
     async (owner: string) => {
-      const resolveAvatarUrl = async (iconImageKey?: string | null) => {
-        if (!iconImageKey) {
-          return null;
-        }
-        try {
-          const resolved = await getUrl({ path: iconImageKey });
-          return toCloudFrontImageUrl(iconImageKey, resolved.url.toString());
-        } catch {
-          return null;
-        }
-      };
-
       if (!owner) {
         setProfile(null);
         setProfileAvatarUrl(null);
@@ -364,10 +378,7 @@ export default function StoryViewScreen() {
         ).data?.getProfile;
         if (loadedProfile?.id) {
           setProfile(loadedProfile);
-          setProfileAvatarUrl(
-            (await resolveAvatarUrl(loadedProfile.iconImageKey)) ??
-              AVATAR_PLACEHOLDER_URL,
-          );
+          setProfileAvatarUrl(AVATAR_PLACEHOLDER_URL);
           setRecipientUserId(loadedProfile.id);
           return;
         }
@@ -389,10 +400,7 @@ export default function StoryViewScreen() {
           ).data?.listProfiles?.items ?? [];
         const matched = profiles.find((item) => item?.owner === owner) ?? null;
         setProfile(matched ?? null);
-        setProfileAvatarUrl(
-          (await resolveAvatarUrl(matched?.iconImageKey)) ??
-            AVATAR_PLACEHOLDER_URL,
-        );
+        setProfileAvatarUrl(AVATAR_PLACEHOLDER_URL);
         setRecipientUserId(matched?.id ?? owner);
       } catch {
         setProfile(null);
@@ -404,24 +412,20 @@ export default function StoryViewScreen() {
   );
 
   React.useEffect(() => {
-    openProgress.setValue(0);
-    Animated.timing(openProgress, {
-      toValue: 1,
-      duration: 170,
-      useNativeDriver: true,
-    }).start();
-  }, [openProgress, storyId]);
+    if (preloadedStoryQueue.length === 0) {
+      return;
+    }
+
+    setStoryQueue(preloadedStoryQueue);
+    setActiveIndex(initialPreloadedActiveIndex);
+    setIsLoading(false);
+  }, [initialPreloadedActiveIndex, preloadedStoryQueue]);
 
   React.useEffect(() => {
     if (!storyId) {
       setIsLoading(false);
       return;
     }
-
-    const preloadedIndex = Number.parseInt(initialIndex ?? "0", 10);
-    const normalizedInitialIndex = Number.isNaN(preloadedIndex)
-      ? 0
-      : preloadedIndex;
 
     if (preloadedStoryQueue.length > 0) {
       const byIdIndex = preloadedStoryQueue.findIndex(
@@ -441,7 +445,7 @@ export default function StoryViewScreen() {
           return;
         }
 
-        if (imageUrl) {
+        if (preloadedImageUrl) {
           setStoryQueue([
             {
               id: storyId,
@@ -450,7 +454,7 @@ export default function StoryViewScreen() {
               caption: null,
               createdAt: null,
               updatedAt: null,
-              imageUrl,
+              imageUrl: preloadedImageUrl,
             },
           ]);
           setActiveIndex(0);
@@ -476,7 +480,8 @@ export default function StoryViewScreen() {
             return;
           }
 
-          let resolvedImageUrl = imageUrl ?? "";
+          // 画像URLは基本的にホームから受け取った値を使い、欠損時のみフォールバック通信
+          let resolvedImageUrl = preloadedImageUrl;
           if (!resolvedImageUrl && loadedStory.imageKey) {
             try {
               const resolved = await getUrl({ path: loadedStory.imageKey });
@@ -487,6 +492,12 @@ export default function StoryViewScreen() {
             } catch {
               resolvedImageUrl = "";
             }
+          }
+
+          if (!resolvedImageUrl) {
+            setStoryQueue([]);
+            setIsLoading(false);
+            return;
           }
 
           const resolvedQueue = [
@@ -506,8 +517,8 @@ export default function StoryViewScreen() {
     })();
   }, [
     client,
-    imageUrl,
     initialIndex,
+    preloadedImageUrl,
     preloadedStoryQueue,
     storyId,
   ]);
@@ -575,7 +586,7 @@ export default function StoryViewScreen() {
 
         if (!cancelled) {
           setReactionRecordIdByStory(nextReactionMap);
-          setProgress(0);
+          progressAnimValue.setValue(0);
         }
       } catch (error) {
         console.error("[StoryView] failed to load async metadata:", error);
@@ -654,25 +665,9 @@ export default function StoryViewScreen() {
       return;
     }
     setReactionRecordIdByType(reactionRecordIdByStory[story.id] ?? {});
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
   }, [activeIndex, reactionRecordIdByStory, story]);
-
-  React.useEffect(() => {
-    if (!story || isPlaybackPaused) {
-      return;
-    }
-
-    const tickMs = 50;
-    const step = tickMs / STORY_DURATION_MS;
-    const timer = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + step;
-        return next >= 1 ? 1 : next;
-      });
-    }, tickMs);
-
-    return () => clearInterval(timer);
-  }, [isPlaybackPaused, story]);
 
   const goNextStory = React.useCallback(() => {
     if (activeIndex >= storyQueue.length - 1) {
@@ -680,40 +675,78 @@ export default function StoryViewScreen() {
       return;
     }
 
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
     setActiveIndex((prev) => prev + 1);
-  }, [activeIndex, router, storyQueue.length]);
+  }, [activeIndex, progressAnimValue, router, storyQueue.length]);
 
   const goPreviousStory = React.useCallback(() => {
     if (activeIndex <= 0) {
       return;
     }
 
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
     setActiveIndex((prev) => prev - 1);
-  }, [activeIndex]);
+  }, [activeIndex, progressAnimValue]);
 
   React.useEffect(() => {
-    if (!story || isPlaybackPaused) {
+    if (isPlaybackPaused || storyQueue.length === 0) {
       return;
     }
-    if (progress >= 1) {
-      goNextStory();
+
+    const activeStory = storyQueue[activeIndex];
+    if (!activeStory) {
+      return;
     }
-  }, [goNextStory, isPlaybackPaused, progress, story]);
+
+    // 残っているアニメーションを確実に破棄してから開始
+    progressAnimationRef.current?.stop();
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
+
+    const startTimer = setTimeout(() => {
+      const animation = Animated.timing(progressAnimValue, {
+        toValue: 1,
+        duration: STORY_DURATION_MS,
+        useNativeDriver: true,
+      });
+      progressAnimationRef.current = animation;
+      animation.start(({ finished }) => {
+        if (finished) {
+          goNextStory();
+        }
+      });
+    }, 100);
+
+    return () => {
+      clearTimeout(startTimer);
+      progressAnimationRef.current?.stop();
+      progressAnimationRef.current = null;
+      progressAnimValue.stopAnimation();
+    };
+  }, [activeIndex, goNextStory, isPlaybackPaused, progressAnimValue, storyQueue]);
 
 
-  // 🔥 修正のコア部分：データ取得前でも、一覧から渡ってきた初期データをフル活用（フォールバック）する！
-  const activeStoryFallback = story || preloadedStoryQueue[activeIndex] || preloadedStoryQueue[0];
-  const displayImageUrl = activeStoryFallback?.imageUrl || imageUrl || "";
+  // 受け取った初期データを最優先で使い、開いた瞬間に表示する
+  const activeStoryFallback =
+    story || preloadedStoryQueue[activeIndex] || preloadedStoryQueue[0];
+  const displayImageUrl = activeStoryFallback?.imageUrl || preloadedImageUrl || "";
   
   // CognitoのUUID（C7142A48...など）がそのまま表示されるのを防ぐ
   const rawOwner = activeStoryFallback?.owner || "USER";
   const isUUID = rawOwner.includes("-") && rawOwner.length > 20;
-  const displayName = profile?.displayName || profile?.username || (isUUID ? "" : rawOwner.split("@")[0].toUpperCase());
+  const displayName =
+    activeStoryFallback?.userName ||
+    profile?.displayName ||
+    profile?.username ||
+    (isUUID ? "" : rawOwner.split("@")[0].toUpperCase());
+  const displayAvatarUrl =
+    activeStoryFallback?.userAvatar ||
+    profileAvatarUrl ||
+    AVATAR_PLACEHOLDER_URL;
 
-  // ⭕️ 修正後
-const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
+  const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
 
   const created = activeStoryFallback?.createdAt ? new Date(activeStoryFallback.createdAt) : null;
   const timeLabel = created
@@ -1019,24 +1052,17 @@ const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
         ]}
       >
         <View style={styles.hero}>
-          <Animated.View
-            style={[
-              styles.heroImageAnimLayer,
-              {
-                opacity: openingOpacity,
-                transform: [{ scale: openingScale }],
-              },
-            ]}
-          >
+          <View style={styles.heroImageAnimLayer}>
             {/* 🔥 修正：displayImageUrl を使ってロード前でも画像を表示させる！ */}
             <Image
               source={{ uri: displayImageUrl }}
               style={styles.heroImageLayer}
               contentFit="contain"
               transition={0}
-              cachePolicy="disk"
+              cachePolicy="memory-disk"
+              priority="high"
             />
-          </Animated.View>
+          </View>
           <Pressable
             style={styles.heroOverlay}
             onPress={onHeroTap}
@@ -1059,15 +1085,53 @@ const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
               {storyQueue.map((item, index) => {
                 const isDone = index < activeIndex;
                 const isCurrent = index === activeIndex;
-                const fill = isDone ? 1 : isCurrent ? progress : 0;
                 return (
-                  <View key={item.id} style={styles.bar}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        { width: `${Math.max(0, Math.min(1, fill)) * 100}%` },
-                      ]}
-                    />
+                  <View
+                    key={item.id}
+                    style={styles.bar}
+                    onLayout={
+                      index === 0
+                        ? (event) => {
+                            const measuredWidth = event.nativeEvent.layout.width;
+                            if (
+                              measuredWidth > 0 &&
+                              measuredWidth !== progressBarWidth
+                            ) {
+                              setProgressBarWidth(measuredWidth);
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    {isCurrent ? (
+                      <Animated.View
+                        style={[
+                          styles.barFill,
+                          {
+                            transform: [
+                              { translateX: currentProgressTranslateX },
+                              { scaleX: currentProgressScaleX },
+                            ],
+                          },
+                        ]}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.barFill,
+                          {
+                            transform: [
+                              {
+                                translateX: isDone
+                                  ? 0
+                                  : -(progressBarWidth / 2),
+                              },
+                              { scaleX: isDone ? 1 : 0 },
+                            ],
+                          },
+                        ]}
+                      />
+                    )}
                   </View>
                 );
               })}
@@ -1076,10 +1140,11 @@ const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
             <View style={styles.topRow}>
               <View style={styles.profileHeader}>
                 <Image
-                  source={{ uri: profileAvatarUrl ?? AVATAR_PLACEHOLDER_URL }}
+                  source={{ uri: displayAvatarUrl }}
                   style={styles.profileAvatar}
                   contentFit="cover"
-                  cachePolicy="disk"
+                  cachePolicy="memory-disk"
+                  priority="high"
                   transition={0}
                 />
                 <View>
@@ -1137,8 +1202,8 @@ const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
             },
           ]}
         >
-          {story?.caption ? (
-            <Text style={styles.caption}>{story.caption}</Text>
+          {activeStoryFallback?.caption ? (
+            <Text style={styles.caption}>{activeStoryFallback.caption}</Text>
           ) : null}
           {!story || isOwnStory ? null : (
             <View style={styles.inputRow}>
@@ -1232,6 +1297,8 @@ const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
   );
 }
 
+
+
 const createStyles = () =>
   StyleSheet.create({
     modalRoot: {
@@ -1321,6 +1388,7 @@ const createStyles = () =>
       overflow: "hidden",
     },
     barFill: {
+      width: "100%",
       height: "100%",
       borderRadius: 2,
       backgroundColor: theme.colors.white,
