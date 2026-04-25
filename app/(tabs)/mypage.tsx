@@ -2,7 +2,6 @@ import React from "react";
 import {
   Dimensions,
   FlatList,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,12 +10,14 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { CustomButton } from "../../src/components/common";
 import { ScreenContainer } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
 
@@ -191,7 +192,12 @@ export default function MyPageScreen() {
         if (profile.iconImageKey) {
           try {
             const urlResult = await getUrl({ path: profile.iconImageKey });
-            setAvatarUrl(urlResult.url.toString());
+            setAvatarUrl(
+              toCloudFrontImageUrl(
+                profile.iconImageKey,
+                urlResult.url.toString(),
+              ),
+            );
           } catch {
             setAvatarUrl(null);
           }
@@ -254,7 +260,7 @@ export default function MyPageScreen() {
 
               try {
                 const resolved = await getUrl({ path: source });
-                return resolved.url.toString();
+                return toCloudFrontImageUrl(source, resolved.url.toString());
               } catch {
                 return null;
               }
@@ -341,6 +347,39 @@ export default function MyPageScreen() {
     void loadMyPageData();
   }, [loadMyPageData]);
 
+  React.useEffect(() => {
+    const imageUrls = new Set<string>();
+
+    if (avatarUrl) {
+      imageUrls.add(avatarUrl);
+    }
+
+    posts.forEach((post) => {
+      if (post.imageUrl) {
+        imageUrls.add(post.imageUrl);
+      }
+      post.imageUrls.forEach((url) => {
+        if (url) {
+          imageUrls.add(url);
+        }
+      });
+    });
+
+    if (imageUrls.size === 0) {
+      return;
+    }
+
+    void Promise.all(
+      Array.from(imageUrls).map(async (url) => {
+        try {
+          await Image.prefetch(url);
+        } catch {
+          // Ignore individual prefetch failures.
+        }
+      }),
+    );
+  }, [avatarUrl, posts]);
+
   return (
     <ScreenContainer
       backgroundColor={theme.colors.white}
@@ -363,7 +402,13 @@ export default function MyPageScreen() {
 
       <View style={styles.profileSection}>
         {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          <Image
+            source={{ uri: avatarUrl }}
+            style={styles.avatar}
+            contentFit="cover"
+            cachePolicy="disk"
+            transition={300}
+          />
         ) : (
           <View style={styles.avatar} />
         )}
@@ -459,7 +504,9 @@ export default function MyPageScreen() {
               <Image
                 source={{ uri: item.imageUrl }}
                 style={styles.galleryImage}
-                resizeMode="cover"
+                contentFit="cover"
+                cachePolicy="disk"
+                transition={300}
               />
             </TouchableOpacity>
           )}

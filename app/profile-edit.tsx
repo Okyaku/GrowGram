@@ -14,6 +14,7 @@ import {
 import { theme } from "../src/theme";
 import { BackButton } from "../src/components/common/BackButton";
 import { Text, TextInput } from "../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../src/services/aws/cdn";
 
 type ProfileItem = {
   id: string;
@@ -210,7 +211,12 @@ export default function ProfileEditScreen() {
           try {
             const resolved = await getUrl({ path: profile.iconImageKey });
             if (isMounted) {
-              setInitialAvatarUrl(resolved.url.toString());
+              setInitialAvatarUrl(
+                toCloudFrontImageUrl(
+                  profile.iconImageKey,
+                  resolved.url.toString(),
+                ),
+              );
             }
           } catch {
             if (isMounted) {
@@ -426,7 +432,9 @@ export default function ProfileEditScreen() {
         setInitialImageKey(iconImageKey);
         try {
           const resolved = await getUrl({ path: iconImageKey });
-          setInitialAvatarUrl(resolved.url.toString());
+          setInitialAvatarUrl(
+            toCloudFrontImageUrl(iconImageKey, resolved.url.toString()),
+          );
         } catch {
           setInitialAvatarUrl(null);
         }

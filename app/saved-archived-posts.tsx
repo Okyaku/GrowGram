@@ -7,17 +7,18 @@ import {
   FlatList,
   ActivityIndicator,
   Modal,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../src/components/common";
 import { Text } from "../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../src/services/aws/cdn";
 import { theme } from "../src/theme";
 
 const client = generateClient({ authMode: "userPool" });
@@ -211,7 +212,7 @@ export default function SavedArchivedPostsScreen() {
             for (const key of post.imageKeys) {
               try {
                 const resolved = await getUrl({ path: key });
-                imageUrls.push(resolved.url.toString());
+                imageUrls.push(toCloudFrontImageUrl(key, resolved.url.toString()));
               } catch (error) {
                 console.warn("Failed to get image URL:", key);
               }
@@ -248,7 +249,7 @@ export default function SavedArchivedPostsScreen() {
             for (const key of post.imageKeys) {
               try {
                 const resolved = await getUrl({ path: key });
-                imageUrls.push(resolved.url.toString());
+                imageUrls.push(toCloudFrontImageUrl(key, resolved.url.toString()));
               } catch (error) {
                 console.warn("Failed to get image URL:", key);
               }
@@ -287,7 +288,10 @@ export default function SavedArchivedPostsScreen() {
             return {
               id: story.id,
               caption: story.caption ?? null,
-              imageUrl: resolved.url.toString(),
+              imageUrl: toCloudFrontImageUrl(
+                story.imageKey,
+                resolved.url.toString(),
+              ),
               createdAt: story.createdAt || new Date().toISOString(),
             } satisfies ArchivedStory;
           } catch {
@@ -339,6 +343,46 @@ export default function SavedArchivedPostsScreen() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    const imageUrls = new Set<string>();
+
+    savedPosts.forEach((post) => {
+      (post.imageUrls ?? []).forEach((url) => {
+        if (url) {
+          imageUrls.add(url);
+        }
+      });
+    });
+
+    archivedPosts.forEach((post) => {
+      (post.imageUrls ?? []).forEach((url) => {
+        if (url) {
+          imageUrls.add(url);
+        }
+      });
+    });
+
+    archivedStories.forEach((story) => {
+      if (story.imageUrl) {
+        imageUrls.add(story.imageUrl);
+      }
+    });
+
+    if (imageUrls.size === 0) {
+      return;
+    }
+
+    void Promise.all(
+      Array.from(imageUrls).map(async (url) => {
+        try {
+          await Image.prefetch(url);
+        } catch {
+          // Ignore individual prefetch failures.
+        }
+      }),
+    );
+  }, [archivedPosts, archivedStories, savedPosts]);
+
   const displayPosts = activeTab === "saved" ? savedPosts : archivedPosts;
 
   const handleImagePress = (images: string[], index: number) => {
@@ -389,7 +433,13 @@ export default function SavedArchivedPostsScreen() {
             style={styles.imageContainer}
             onPress={() => handleImagePress(imagesToShow, 0)}
           >
-            <Image source={{ uri: imagesToShow[0] }} style={styles.postImage} />
+            <Image
+              source={{ uri: imagesToShow[0] }}
+              style={styles.postImage}
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={300}
+            />
             {imagesToShow.length > 1 && (
               <View style={styles.imageCountBadge}>
                 <Text style={styles.imageCountText}>
@@ -447,7 +497,13 @@ export default function SavedArchivedPostsScreen() {
         </View>
 
         <View style={styles.imageContainer}>
-          <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={styles.postImage}
+            contentFit="cover"
+            cachePolicy="disk"
+            transition={300}
+          />
         </View>
       </View>
     );
@@ -608,6 +664,9 @@ export default function SavedArchivedPostsScreen() {
                     <Image
                       source={{ uri: imageUri }}
                       style={styles.imageFullscreenImage}
+                      contentFit="contain"
+                      cachePolicy="disk"
+                      transition={300}
                     />
                   </View>
                 ))}

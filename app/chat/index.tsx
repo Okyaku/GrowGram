@@ -7,6 +7,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { theme } from "../../src/theme";
 
 type CloudMessage = {
@@ -146,7 +147,10 @@ export default function ChatInboxScreen() {
             if (item.iconImageKey) {
               try {
                 const resolved = await getUrl({ path: item.iconImageKey });
-                avatarUrl = resolved.url.toString();
+                avatarUrl = toCloudFrontImageUrl(
+                  item.iconImageKey,
+                  resolved.url.toString(),
+                );
               } catch {
                 avatarUrl = undefined;
               }

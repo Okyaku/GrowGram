@@ -14,6 +14,7 @@ import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { theme } from "../../src/theme";
 
 type CloudMessage = {
@@ -239,7 +240,12 @@ export default function ChatScreen() {
       if (profile?.iconImageKey) {
         try {
           const resolved = await getUrl({ path: profile.iconImageKey });
-          setPartnerAvatarUrl(resolved.url.toString());
+          setPartnerAvatarUrl(
+            toCloudFrontImageUrl(
+              profile.iconImageKey,
+              resolved.url.toString(),
+            ),
+          );
         } catch {
           setPartnerAvatarUrl(null);
         }

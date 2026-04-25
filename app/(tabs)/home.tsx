@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -14,11 +13,13 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
@@ -146,6 +147,7 @@ type StoryItem = {
   image: string;
   active: boolean;
   owner: string;
+  allStories: any[]; // ⭕️ これを1行足す！
 };
 
 const utf8Bytes = (value: string): Uint8Array => {
@@ -614,7 +616,7 @@ export default function HomeScreen() {
           return true;
         }
         return false;
-      };
+      }
 
       const normalizeOwner = (recordOwner?: string | null) => {
         if (!recordOwner) {
@@ -727,7 +729,10 @@ export default function HomeScreen() {
             if (item.iconImageKey) {
               try {
                 const resolved = await getUrl({ path: item.iconImageKey });
-                avatarUrl = resolved.url.toString();
+                avatarUrl = toCloudFrontImageUrl(
+                  item.iconImageKey,
+                  resolved.url.toString(),
+                );
               } catch {
                 avatarUrl = undefined;
               }
@@ -859,7 +864,7 @@ export default function HomeScreen() {
           .filter(
             (item) => myPostIds.has(item.postId) && !isOwnedByMe(item.owner),
           ).length *
-          30 +
+        30 +
         storyReactionItems
           .filter((item): item is CloudStoryReaction =>
             Boolean(
@@ -869,7 +874,7 @@ export default function HomeScreen() {
           .filter(
             (item) => myStoryIds.has(item.storyId) && item.owner !== owner,
           ).length *
-          30;
+        30;
 
       if (nextReactionBonusScore !== reactionBonusScore) {
         adjustScore(nextReactionBonusScore - reactionBonusScore);
@@ -1022,7 +1027,7 @@ export default function HomeScreen() {
             const urls = await Promise.all(
               post.imageKeys.map(async (key) => {
                 const resolved = await getUrl({ path: key });
-                return resolved.url.toString();
+                return toCloudFrontImageUrl(key, resolved.url.toString());
               }),
             );
             return {
@@ -1043,89 +1048,60 @@ export default function HomeScreen() {
         setPosts(fallbackPosts);
       }
 
-      const storyByOwner = new Map<string, CloudStory>();
+      // ⭕️ 全ストーリーをユーザー単位でグループ化（1つ目が消えないようにする）
+      const storyGroups = new Map<string, any[]>();
       storyItems
-        .filter((item): item is CloudStory =>
-          Boolean(item?.id && item.imageKey),
-        )
-        .filter((item) => {
-          if (!item.createdAt) {
-            return true;
-          }
-          const createdAtMs = new Date(item.createdAt).getTime();
-          if (Number.isNaN(createdAtMs)) {
-            return true;
-          }
-          return Date.now() - createdAtMs < 24 * 60 * 60 * 1000;
+        .filter((item: any) => Boolean(item?.id && item.imageKey))
+        .filter((item: any) => {
+          if (!item.createdAt) return true;
+          return Date.now() - new Date(item.createdAt).getTime() < 24 * 60 * 60 * 1000;
         })
-        .forEach((item) => {
-          const storyOwner = item.owner ?? "";
-          const current = storyByOwner.get(storyOwner);
-          const currentTime = current?.createdAt
-            ? new Date(current.createdAt).getTime()
-            : 0;
-          const nextTime = item.createdAt
-            ? new Date(item.createdAt).getTime()
-            : 0;
-          if (!current || nextTime > currentTime) {
-            storyByOwner.set(storyOwner, item);
-          }
+        .forEach((item: any) => {
+          const o = item.owner ?? "";
+          const existing = storyGroups.get(o) ?? [];
+          storyGroups.set(o, [...existing, item]);
         });
 
       const storyList = await Promise.all(
-        Array.from(storyByOwner.values()).map(async (story) => {
-          let imageUrl =
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          try {
-            const resolved = await getUrl({ path: story.imageKey });
-            imageUrl = resolved.url.toString();
-          } catch {
-            imageUrl =
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          }
-          const profile = profileByOwner.get(story.owner ?? "");
+        Array.from(storyGroups.entries()).map(async ([o, items]) => {
+          // 日付順に並び替え
+          const sorted = items.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+
+          // 詳細画面でロードを発生させないため、ここで全画像のURLを解決する
+          const itemsWithUrls = await Promise.all(sorted.map(async (st) => {
+            const res = await getUrl({ path: st.imageKey });
+            return {
+              ...st,
+              imageUrl: toCloudFrontImageUrl(st.imageKey, res.url.toString()),
+              userName: profileByOwner.get(o)?.displayName || profileByOwner.get(o)?.username || o.split('@')[0].toUpperCase()
+            };
+          }));
+
+          const profile = profileByOwner.get(o) as any;
           return {
-            id: story.id,
-            owner: story.owner ?? "",
-            userName:
-              profile?.displayName ||
-              profile?.username ||
-              (story.owner ?? "USER").split("@")[0].toUpperCase(),
-            image: imageUrl,
-            active: owner === story.owner,
-          } satisfies StoryItem;
-        }),
-      );
-
-      const hasMyStory = storyList.some((story) => story.owner === owner);
-      const myProfile = profileByOwner.get(owner);
-      const myStoryItem: StoryItem = hasMyStory
-        ? (storyList.find((story) => story.owner === owner) as StoryItem)
-        : {
-            id: "my-create",
-            owner,
-            userName:
-              myProfile?.displayName || myProfile?.username || "MY GROW",
-            image:
-              myProfile?.avatarUrl ||
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300",
+            id: itemsWithUrls[0].id, // 最初のストーリーのIDを識別子にする
+            owner: o,
+            userName: profile?.displayName || profile?.username || o.split('@')[0].toUpperCase(),
+            image: itemsWithUrls[itemsWithUrls.length - 1].imageUrl, // サムネは最新画像
             active: true,
+            allStories: itemsWithUrls // ⭕️ これが重要！全データを詳細に引き渡す
           };
-
-      const others = storyList.filter((story) => story.owner !== owner);
-      const nextStories = [myStoryItem, ...others];
-
-      await Promise.all(
-        nextStories.map(async (story) => {
-          try {
-            await Image.prefetch(story.image);
-          } catch {
-            // Ignore failed prefetch and still render using the original URL.
-          }
-        }),
+        })
       );
 
-      setStories(nextStories);
+      const myProfile = profileByOwner.get(owner) as any;
+      const myStoryItem = storyList.find(s => s.owner === owner) || {
+        id: "my-create",
+        owner,
+        userName: myProfile?.displayName || "MY GROW",
+        // 仮画像を廃止し、プロフィール画像がある時だけ出す。ない時は背景色だけで待つ（こっちの方が綺麗）
+        image: myProfile?.avatarUrl || "",
+        active: true,
+        allStories: []
+      };
+
+      const others = storyList.filter(s => s.owner !== owner);
+      setStories([myStoryItem, ...others] as any);
       hasLoadedInitialFeedRef.current = true;
       setIsInitialFeedLoading(false);
     } catch (error) {
@@ -1434,6 +1410,42 @@ export default function HomeScreen() {
     };
   }, []);
 
+  React.useEffect(() => {
+    const imageUrls = new Set<string>();
+
+    stories.forEach((story) => {
+      if (story.image) {
+        imageUrls.add(story.image);
+      }
+    });
+
+    posts.forEach((post) => {
+      const postUrls = post.imageUrls.length > 0 ? post.imageUrls : [post.image];
+      postUrls.forEach((url) => {
+        if (url) {
+          imageUrls.add(url);
+        }
+      });
+      if (post.userAvatar) {
+        imageUrls.add(post.userAvatar);
+      }
+    });
+
+    if (imageUrls.size === 0) {
+      return;
+    }
+
+    void Promise.all(
+      Array.from(imageUrls).map(async (url) => {
+        try {
+          await Image.prefetch(url);
+        } catch {
+          // Ignore individual prefetch failures to avoid blocking UI.
+        }
+      }),
+    );
+  }, [posts, stories]);
+
   const toggleSave = React.useCallback(
     async (postId: string) => {
       try {
@@ -1710,6 +1722,29 @@ export default function HomeScreen() {
     [onRefresh, scrollY],
   );
 
+  const openStoryWithInitialData = React.useCallback((targetId: string) => {
+    // ユーザーの塊（StoryItem）の中から、対象のストーリーを持っている塊を探す
+    const matchedGroup = stories.find((s: any) =>
+      s.id === targetId || (s.allStories && s.allStories.some((as: any) => as.id === targetId))
+    );
+
+    if (!matchedGroup || !matchedGroup.allStories || matchedGroup.allStories.length === 0) return;
+
+    // ⭕️ そのユーザーの全ストーリーをメモリに載せる（これで2枚目も消えない！）
+    (globalThis as any).sharedStoryQueue = matchedGroup.allStories;
+
+    // タップしたストーリーが配列の何番目か計算する
+    const idx = matchedGroup.allStories.findIndex((as: any) => as.id === targetId);
+
+    router.push({
+      pathname: "/story/[storyId]",
+      params: {
+        storyId: targetId,
+        initialIndex: String(Math.max(0, idx)) // ⭕️ 正しい開始位置を伝える
+      },
+    });
+  }, [router, stories]);
+
   const headerCompensateTranslateY = React.useMemo(
     () =>
       scrollY.interpolate({
@@ -1828,13 +1863,14 @@ export default function HomeScreen() {
               <Pressable
                 key={story.id}
                 style={styles.storyItem}
-                onPress={() =>
-                  router.push(
-                    story.id === "my-create"
-                      ? "/story-create"
-                      : `/story/${story.id}`,
-                  )
-                }
+                onPress={() => {
+                  if (story.id === "my-create") {
+                    router.push("/story-create");
+                    return;
+                  }
+
+                  openStoryWithInitialData(story.id);
+                }}
               >
                 <View style={styles.storyRingWrapper}>
                   <View
@@ -1846,6 +1882,10 @@ export default function HomeScreen() {
                     <Image
                       source={{ uri: story.image }}
                       style={styles.storyAvatar}
+                      contentFit="cover"
+                      cachePolicy="memory-disk" // 🔥 修正：メモリとディスクの両方からキャッシュを探す
+                      priority="high"          // 🔥 追加：この画像の読み込み優先度を上げる
+                      transition={0}           // 🔥 追加：フワッと出す演出をカットして即表示
                     />
                   </View>
                   {story.owner === currentOwner && currentOwner.length > 0 ? (
@@ -1881,12 +1921,28 @@ export default function HomeScreen() {
                 <View style={styles.cardHeader}>
                   <Pressable
                     style={styles.userRow}
-                    onPress={() => router.push(`/profile/${post.userId}`)}
+                    onPress={() => {
+                      const matchedStory = stories.find(
+                        (item) =>
+                          item.id !== "my-create" && item.owner === post.userId,
+                      );
+
+                      if (matchedStory) {
+                        // 🔥 修正部分！ `openStoryWithInitialData` を呼び出すように変更！
+                        openStoryWithInitialData(matchedStory.id);
+                        return;
+                      }
+
+                      router.push(`/profile/${post.userId}`);
+                    }}
                   >
                     {post.userAvatar ? (
                       <Image
                         source={{ uri: post.userAvatar }}
                         style={styles.userAvatar}
+                        contentFit="cover"
+                        cachePolicy="disk"
+                        transition={300}
                       />
                     ) : (
                       <View style={styles.userAvatarPlaceholder} />
@@ -1934,7 +1990,9 @@ export default function HomeScreen() {
                       <Image
                         source={{ uri }}
                         style={[styles.image, { height: cardImageHeight }]}
-                        resizeMode="cover"
+                        contentFit="cover"
+                        cachePolicy="disk"
+                        transition={300}
                       />
                     </Pressable>
                   ))}
@@ -2184,6 +2242,9 @@ export default function HomeScreen() {
                               <Image
                                 source={{ uri: comment.ownerAvatar }}
                                 style={styles.commentAvatar}
+                                contentFit="cover"
+                                cachePolicy="disk"
+                                transition={300}
                               />
                             ) : (
                               <View style={styles.commentAvatarPlaceholder} />
@@ -2197,7 +2258,7 @@ export default function HomeScreen() {
                             style={[
                               styles.commentLikeButton,
                               !isIdentityReady &&
-                                styles.commentLikeButtonDisabled,
+                              styles.commentLikeButtonDisabled,
                             ]}
                             disabled={!isIdentityReady}
                             onPress={() => void onToggleCommentLike(comment)}
@@ -2272,7 +2333,9 @@ export default function HomeScreen() {
                     <Image
                       source={{ uri }}
                       style={styles.viewerImage}
-                      resizeMode="contain"
+                      contentFit="contain"
+                      cachePolicy="disk"
+                      transition={300}
                     />
                   </View>
                 ))}
