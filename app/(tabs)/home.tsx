@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
@@ -447,11 +447,8 @@ const fallbackPosts: FeedPost[] = [
     userId: "unknown",
     userName: "NO POSTS YET",
     title: "WELCOME",
-    image:
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-    imageUrls: [
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-    ],
+    image: "",
+    imageUrls: [],
     log: "最初の投稿を作成するとここに表示されます。",
     tags: ["#welcome"],
     createdAt: "1970-01-01T00:00:00.000Z",
@@ -577,7 +574,10 @@ export default function HomeScreen() {
   );
 
   const loadFeed = React.useCallback(async () => {
-    const shouldBlockInitialRender = !hasLoadedInitialFeedRef.current;
+    const hasVisibleFeedData =
+      posts.some((post) => post.id !== "fallback") || stories.length > 0;
+    const shouldBlockInitialRender =
+      !hasLoadedInitialFeedRef.current && !hasVisibleFeedData;
     if (shouldBlockInitialRender) {
       setIsInitialFeedLoading(true);
     }
@@ -626,23 +626,16 @@ export default function HomeScreen() {
         return recordOwner.split("::").pop() ?? recordOwner;
       };
 
-      const [
-        postsResponse,
-        profilesResponse,
-        likesResponse,
-        savesResponse,
-        storiesResponse,
-        storyReactionsResponse,
-        commentsResponse,
-        commentLikesResponse,
-        directMessagesResponse,
-        receiptsResponse,
-      ] = await Promise.all([
-        client.graphql({ query: listPostsQuery }),
-        client.graphql({ query: listProfilesQuery }),
+      const [postsResponse, profilesResponse, storiesResponse] =
+        await Promise.all([
+          client.graphql({ query: listPostsQuery }),
+          client.graphql({ query: listProfilesQuery }),
+          client.graphql({ query: listStoriesQuery }),
+        ]);
+
+      const deferredMetadataPromise = Promise.all([
         client.graphql({ query: listPostLikesQuery }),
         client.graphql({ query: listPostSavesQuery }),
-        client.graphql({ query: listStoriesQuery }),
         client.graphql({ query: listStoryReactionsQuery }),
         client.graphql({ query: listPostCommentsQuery }),
         client.graphql({ query: listCommentLikesQuery }),
@@ -662,6 +655,278 @@ export default function HomeScreen() {
             data?: { listProfiles?: { items?: Array<CloudProfile | null> } };
           }
         ).data?.listProfiles?.items ?? [];
+      const storyItems =
+        (
+          storiesResponse as {
+            data?: { listStories?: { items?: Array<CloudStory | null> } };
+          }
+        ).data?.listStories?.items ?? [];
+      const profileWithAvatar = profileItems
+        .filter((item): item is CloudProfile => Boolean(item?.id))
+        .map((item) => ({
+          id: item.id,
+          owner: item.owner ?? "",
+          username: item.username ?? "",
+          displayName: item.displayName ?? item.username ?? "",
+          iconImageKey: item.iconImageKey ?? "",
+          avatarUrl: "",
+        }));
+      const profileByOwner = new Map(
+        profileWithAvatar.map((profile) => [profile.owner, profile]),
+      );
+      const usernameToProfileId: Record<string, string> = {};
+      profileItems
+        .filter((item): item is CloudProfile =>
+          Boolean(item?.id && item.username),
+        )
+        .forEach((item) => {
+          usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
+        });
+      setProfileIdByUsername(usernameToProfileId);
+
+      const normalizedPosts = postItems
+        .filter((item): item is CloudPost => Boolean(item?.id && item.content))
+        .filter((item) => item.isArchived !== true)
+        .map((item) => {
+          const postOwner = item.owner ?? "unknown";
+          const profile = profileByOwner.get(postOwner);
+          return {
+            id: item.id,
+            userId: postOwner,
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              postOwner.split("@")[0].toUpperCase(),
+            userAvatar: "",
+            title: item.title ?? "USER POST",
+            image: "",
+            imageUrls: [],
+            log: item.content,
+            tags: item.tags ?? [],
+            createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
+            imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
+            imageKeys:
+              item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
+            imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
+            passionCount: item.passion ?? 0,
+            logicCount: item.logic ?? 0,
+            routineCount: item.routine ?? 0,
+            likeCount: 0,
+            saveCount: 0,
+          } satisfies FeedPost;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+
+      const storyGroups = new Map<string, CloudStory[]>();
+      storyItems
+        .filter((item): item is CloudStory => Boolean(item?.id && item.imageKey))
+        .filter((item) => {
+          if (!item.createdAt) {
+            return true;
+          }
+          return (
+            Date.now() - new Date(item.createdAt).getTime() <
+            24 * 60 * 60 * 1000
+          );
+        })
+        .forEach((item) => {
+          const userOwner = item.owner ?? "";
+          const existing = storyGroups.get(userOwner) ?? [];
+          storyGroups.set(userOwner, [...existing, item]);
+        });
+
+      const immediateStoryList = Array.from(storyGroups.entries()).map(
+        ([userOwner, items]) => {
+          const profile = profileByOwner.get(userOwner);
+          const sorted = [...items].sort(
+            (a, b) =>
+              new Date(a.createdAt || 0).getTime() -
+              new Date(b.createdAt || 0).getTime(),
+          );
+          const allStories = sorted.map((st) => ({
+            ...st,
+            imageUrl: "",
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              userOwner.split("@")[0].toUpperCase(),
+            userAvatar: "",
+          }));
+
+          return {
+            id: allStories[0]?.id ?? `${userOwner}-story`,
+            owner: userOwner,
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              userOwner.split("@")[0].toUpperCase(),
+            image: "",
+            active: true,
+            allStories,
+          };
+        },
+      );
+
+      const myProfile = profileByOwner.get(owner) as any;
+      const myStoryItem = immediateStoryList.find((s) => s.owner === owner) || {
+        id: "my-create",
+        owner,
+        userName: myProfile?.displayName || "MY GROW",
+        image: "",
+        active: true,
+        allStories: [] as any[],
+      };
+      const otherStories = immediateStoryList.filter((s) => s.owner !== owner);
+
+      if (normalizedPosts.length > 0) {
+        setPosts(normalizedPosts);
+      } else {
+        setPosts(fallbackPosts);
+      }
+      setStories([myStoryItem, ...otherStories] as any);
+      hasLoadedInitialFeedRef.current = true;
+      setIsInitialFeedLoading(false);
+
+      void (async () => {
+        await Promise.all(
+          normalizedPosts.map(async (post) => {
+            const imageKeys = post.imageKeys ?? [];
+            const ownerProfile = profileByOwner.get(post.userId);
+            let resolvedAvatar = "";
+            if (ownerProfile?.iconImageKey) {
+              try {
+                const avatarResult = await getUrl({
+                  path: ownerProfile.iconImageKey,
+                });
+                resolvedAvatar = toCloudFrontImageUrl(
+                  ownerProfile.iconImageKey,
+                  avatarResult.url.toString(),
+                );
+              } catch {
+                resolvedAvatar = "";
+              }
+            }
+
+            if (imageKeys.length === 0) {
+              if (resolvedAvatar) {
+                setPosts((prev) =>
+                  prev.map((item) =>
+                    item.id === post.id ? { ...item, userAvatar: resolvedAvatar } : item,
+                  ),
+                );
+              }
+              return;
+            }
+
+            const urls = await Promise.all(
+              imageKeys.map(async (key) => {
+                try {
+                  const resolved = await getUrl({ path: key });
+                  return toCloudFrontImageUrl(key, resolved.url.toString());
+                } catch {
+                  return "";
+                }
+              }),
+            );
+            const filtered = urls.filter((url) => Boolean(url));
+
+            if (filtered.length > 0) {
+              void Promise.all(
+                filtered.map((url) => Image.prefetch(url).catch(() => {})),
+              );
+            }
+            if (resolvedAvatar) {
+              void Image.prefetch(resolvedAvatar).catch(() => {});
+            }
+
+            setPosts((prev) =>
+              prev.map((item) =>
+                item.id === post.id
+                  ? {
+                      ...item,
+                      userAvatar: resolvedAvatar || item.userAvatar,
+                      image: filtered[0] ?? "",
+                      imageUrls: filtered,
+                      imageCount: filtered.length > 0 ? filtered.length : item.imageCount,
+                    }
+                  : item,
+              ),
+            );
+          }),
+        );
+      })();
+
+      void (async () => {
+        await Promise.all(
+          immediateStoryList.map(async (storyGroup) => {
+            const ownerProfile = profileByOwner.get(storyGroup.owner) as any;
+            let resolvedAvatar = "";
+            if (ownerProfile?.iconImageKey) {
+              try {
+                const avatarResult = await getUrl({ path: ownerProfile.iconImageKey });
+                resolvedAvatar = toCloudFrontImageUrl(
+                  ownerProfile.iconImageKey,
+                  avatarResult.url.toString(),
+                );
+              } catch {
+                resolvedAvatar = "";
+              }
+            }
+
+            const updatedStories = await Promise.all(
+              (storyGroup.allStories ?? []).map(async (entry: any) => {
+                if (!entry.imageKey) {
+                  return entry;
+                }
+                try {
+                  const resolved = await getUrl({ path: entry.imageKey });
+                  const imageUrl = toCloudFrontImageUrl(
+                    entry.imageKey,
+                    resolved.url.toString(),
+                  );
+                  void Image.prefetch(imageUrl).catch(() => {});
+                  return {
+                    ...entry,
+                    imageUrl,
+                    userAvatar: resolvedAvatar,
+                  };
+                } catch {
+                  return {
+                    ...entry,
+                    userAvatar: resolvedAvatar,
+                  };
+                }
+              }),
+            );
+
+            setStories((prev) =>
+              prev.map((item: any) =>
+                item.owner === storyGroup.owner
+                  ? {
+                      ...item,
+                      image: resolvedAvatar,
+                      allStories: updatedStories,
+                    }
+                  : item,
+              ),
+            );
+          }),
+        );
+      })();
+
+      const [
+        likesResponse,
+        savesResponse,
+        storyReactionsResponse,
+        commentsResponse,
+        commentLikesResponse,
+        directMessagesResponse,
+        receiptsResponse,
+      ] = await deferredMetadataPromise;
+
       const likeItems =
         (
           likesResponse as {
@@ -674,12 +939,6 @@ export default function HomeScreen() {
             data?: { listPostSaves?: { items?: Array<CloudSave | null> } };
           }
         ).data?.listPostSaves?.items ?? [];
-      const storyItems =
-        (
-          storiesResponse as {
-            data?: { listStories?: { items?: Array<CloudStory | null> } };
-          }
-        ).data?.listStories?.items ?? [];
       const storyReactionItems =
         (
           storyReactionsResponse as {
@@ -720,44 +979,6 @@ export default function HomeScreen() {
             };
           }
         ).data?.listReadReceipts?.items ?? [];
-
-      const profileWithAvatar = await Promise.all(
-        profileItems
-          .filter((item): item is CloudProfile => Boolean(item?.id))
-          .map(async (item) => {
-            let avatarUrl: string | undefined;
-            if (item.iconImageKey) {
-              try {
-                const resolved = await getUrl({ path: item.iconImageKey });
-                avatarUrl = toCloudFrontImageUrl(
-                  item.iconImageKey,
-                  resolved.url.toString(),
-                );
-              } catch {
-                avatarUrl = undefined;
-              }
-            }
-            return {
-              id: item.id,
-              owner: item.owner ?? "",
-              username: item.username ?? "",
-              displayName: item.displayName ?? item.username ?? "",
-              avatarUrl,
-            };
-          }),
-      );
-      const profileByOwner = new Map(
-        profileWithAvatar.map((profile) => [profile.owner, profile]),
-      );
-      const usernameToProfileId: Record<string, string> = {};
-      profileItems
-        .filter((item): item is CloudProfile =>
-          Boolean(item?.id && item.username),
-        )
-        .forEach((item) => {
-          usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
-        });
-      setProfileIdByUsername(usernameToProfileId);
       const passionCountByPost: Record<string, number> = {};
       const logicCountByPost: Record<string, number> = {};
       const routineCountByPost: Record<string, number> = {};
@@ -979,168 +1200,15 @@ export default function HomeScreen() {
       setCommentLikeRecordIdByComment(myCommentLikeRecordIds);
       setCommentLikeRecordIdsByComment(myCommentLikeRecordIdsByComment);
 
-      const normalizedPosts = postItems
-        .filter((item): item is CloudPost => Boolean(item?.id && item.content))
-        .filter((item) => item.isArchived !== true)
-        .map((item) => {
-          const postOwner = item.owner ?? "unknown";
-          const profile = profileByOwner.get(postOwner);
-          return {
-            id: item.id,
-            userId: postOwner,
-            userName:
-              profile?.displayName ||
-              profile?.username ||
-              postOwner.split("@")[0].toUpperCase(),
-            userAvatar: profile?.avatarUrl,
-            title: item.title ?? "USER POST",
-            image:
-              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-            imageUrls: [
-              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-            ],
-            log: item.content,
-            tags: item.tags ?? [],
-            createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
-            imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
-            imageKeys:
-              item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
-            imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
-            passionCount: passionCountByPost[item.id] ?? 0,
-            logicCount: logicCountByPost[item.id] ?? 0,
-            routineCount: routineCountByPost[item.id] ?? 0,
-            likeCount: 0,
-            saveCount: saveCountByPost[item.id] ?? 0,
-          } satisfies FeedPost;
-        })
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
-
-      const postsWithImage = await Promise.all(
-        normalizedPosts.map(async (post) => {
-          if (!post.imageKeys || post.imageKeys.length === 0) {
-            return post;
-          }
-          try {
-            const urls = await Promise.all(
-              post.imageKeys.map(async (key) => {
-                const resolved = await getUrl({ path: key });
-                return toCloudFrontImageUrl(key, resolved.url.toString());
-              }),
-            );
-            return {
-              ...post,
-              image: urls[0] ?? post.image,
-              imageUrls: urls.length > 0 ? urls : post.imageUrls,
-              imageCount: urls.length > 0 ? urls.length : post.imageCount,
-            };
-          } catch {
-            return post;
-          }
-        }),
+      setPosts((prev) =>
+        prev.map((post) => ({
+          ...post,
+          passionCount: passionCountByPost[post.id] ?? post.passionCount,
+          logicCount: logicCountByPost[post.id] ?? post.logicCount,
+          routineCount: routineCountByPost[post.id] ?? post.routineCount,
+          saveCount: saveCountByPost[post.id] ?? post.saveCount,
+        })),
       );
-
-      if (postsWithImage.length > 0) {
-        setPosts(postsWithImage);
-      } else {
-        setPosts(fallbackPosts);
-      }
-
-      // ⭕️ ストーリー取得ロジックを関数化（爆速表示対応）
-      const buildStoryList = async () => {
-        const storyGroups = new Map<string, any[]>();
-        
-        // 1️⃣ ユーザー単位でストーリーをグループ化
-        storyItems
-          .filter((item: any) => Boolean(item?.id && item.imageKey))
-          .filter((item: any) => {
-            if (!item.createdAt) return true;
-            return Date.now() - new Date(item.createdAt).getTime() < 24 * 60 * 60 * 1000;
-          })
-          .forEach((item: any) => {
-            const userOwner = item.owner ?? "";
-            const existing = storyGroups.get(userOwner) ?? [];
-            storyGroups.set(userOwner, [...existing, item]);
-          });
-
-        // 2️⃣ 各ユーザーのストーリーをCloudFront URL解決＆prefetch
-        const storyList = await Promise.all(
-          Array.from(storyGroups.entries()).map(async ([userOwner, items]) => {
-            const sorted = items.sort(
-              (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
-            );
-
-            // CloudFront URL 解決とメタデータ付与
-            const itemsWithUrls = await Promise.all(
-              sorted.map(async (st) => {
-                const res = await getUrl({ path: st.imageKey });
-                const imageUrl = toCloudFrontImageUrl(st.imageKey, res.url.toString());
-                return {
-                  ...st,
-                  imageUrl,
-                  userName:
-                    profileByOwner.get(userOwner)?.displayName ||
-                    profileByOwner.get(userOwner)?.username ||
-                    userOwner.split("@")[0].toUpperCase(),
-                };
-              })
-            );
-
-            // 3️⃣ 全ストーリー画像を prefetch（ディスク・メモリキャッシュ対応）
-            await Promise.all(
-              itemsWithUrls.map(async (story) => {
-                try {
-                  await Image.prefetch(story.imageUrl);
-                } catch {
-                  // prefetch 失敗は無視（UIブロッキング防止）
-                }
-              })
-            );
-
-            const profile = profileByOwner.get(userOwner) as any;
-            const storyItem = {
-              id: itemsWithUrls[0].id,
-              owner: userOwner,
-              userName: profile?.displayName || profile?.username || userOwner.split("@")[0].toUpperCase(),
-              image: itemsWithUrls[itemsWithUrls.length - 1].imageUrl,
-              active: true,
-              allStories: itemsWithUrls,
-            };
-            return storyItem;
-          })
-        );
-        
-        return storyList;
-      };
-
-      const storyList = await buildStoryList();
-
-      // 4️⃣ 自分のプロフィール画像は非ブロッキング表示対応
-      const myProfile = profileByOwner.get(owner) as any;
-      const myStoryItem = storyList.find((s) => s.owner === owner) || {
-        id: "my-create",
-        owner,
-        userName: myProfile?.displayName || "MY GROW",
-        image: myProfile?.avatarUrl || "",
-        active: true,
-        allStories: [] as any[],
-      };
-      
-      // 自分のアバター画像も prefetch（存在する場合）
-      if (myProfile?.avatarUrl) {
-        try {
-          await Image.prefetch(myProfile.avatarUrl);
-        } catch {
-          // prefetch 失敗は無視
-        }
-      }
-
-      const others = storyList.filter((s) => s.owner !== owner);
-      setStories([myStoryItem, ...others] as any);
-      hasLoadedInitialFeedRef.current = true;
-      setIsInitialFeedLoading(false);
     } catch (error) {
       const authErrorText = JSON.stringify(error);
       const isNoCurrentUserError =
@@ -1166,13 +1234,13 @@ export default function HomeScreen() {
         setIsInitialFeedLoading(false);
       }
     }
-  }, [adjustScore, client, reactionBonusScore, router]);
+  }, [adjustScore, client, posts, reactionBonusScore, router, stories]);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      void loadFeed();
-    }, [loadFeed]),
-  );
+  React.useEffect(() => {
+    void loadFeed();
+    // 初回マウント時のみロードし、フォーカス復帰では再取得しない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onRefresh = React.useCallback(async () => {
     if (isRefreshingRef.current) {
@@ -1933,14 +2001,18 @@ export default function HomeScreen() {
                       story.active && styles.storyRingActive,
                     ]}
                   >
-                    <Image
-                      source={{ uri: story.image }}
-                      style={styles.storyAvatar}
-                      contentFit="cover"
-                      cachePolicy="memory-disk" // 🔥 修正：メモリとディスクの両方からキャッシュを探す
-                      priority="high"          // 🔥 追加：この画像の読み込み優先度を上げる
-                      transition={0}           // 🔥 追加：フワッと出す演出をカットして即表示
-                    />
+                    {story.image ? (
+                      <Image
+                        source={{ uri: story.image }}
+                        style={styles.storyAvatar}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        priority="high"
+                        transition={0}
+                      />
+                    ) : (
+                      <View style={styles.storyAvatarPlaceholder} />
+                    )}
                   </View>
                   {story.owner === currentOwner && currentOwner.length > 0 ? (
                     <Pressable
@@ -1967,6 +2039,12 @@ export default function HomeScreen() {
         </View>
 
         {posts.map((post) => {
+          const postDisplayUrls =
+            post.imageUrls.length > 0
+              ? post.imageUrls.filter((url) => Boolean(url))
+              : post.image
+                ? [post.image]
+                : [];
           const isOwner =
             currentOwner.length > 0 && post.userId === currentOwner;
           return (
@@ -1995,8 +2073,8 @@ export default function HomeScreen() {
                         source={{ uri: post.userAvatar }}
                         style={styles.userAvatar}
                         contentFit="cover"
-                        cachePolicy="disk"
-                        transition={300}
+                        cachePolicy="memory-disk"
+                        transition={0}
                       />
                     ) : (
                       <View style={styles.userAvatarPlaceholder} />
@@ -2023,39 +2101,37 @@ export default function HomeScreen() {
                   }}
                   style={styles.imageCarousel}
                 >
-                  {(post.imageUrls.length > 0
-                    ? post.imageUrls
-                    : [post.image]
-                  ).map((uri, index) => (
-                    <Pressable
-                      key={`${post.id}-${index}-${uri}`}
-                      onLongPress={() => onPostLongPress(post.id)}
-                      onPress={() =>
-                        onPostTap(
-                          post.id,
-                          post.imageUrls.length > 0
-                            ? post.imageUrls
-                            : [post.image],
-                          index,
-                        )
-                      }
-                      style={[styles.imageSlide, { width: cardImageWidth }]}
+                  {postDisplayUrls.length > 0 ? (
+                    postDisplayUrls.map((uri, index) => (
+                      <Pressable
+                        key={`${post.id}-${index}-${uri}`}
+                        onLongPress={() => onPostLongPress(post.id)}
+                        onPress={() => onPostTap(post.id, postDisplayUrls, index)}
+                        style={[styles.imageSlide, { width: cardImageWidth }]}
+                      >
+                        <Image
+                          source={{ uri }}
+                          style={[styles.image, { height: cardImageHeight }]}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={0}
+                        />
+                      </Pressable>
+                    ))
+                  ) : (
+                    <View
+                      style={[
+                        styles.imageSlide,
+                        styles.imageLoadingSkeleton,
+                        { width: cardImageWidth, height: cardImageHeight },
+                      ]}
                     >
-                      <Image
-                        source={{ uri }}
-                        style={[styles.image, { height: cardImageHeight }]}
-                        contentFit="cover"
-                        cachePolicy="disk"
-                        transition={300}
-                      />
-                    </Pressable>
-                  ))}
+                      <ActivityIndicator size="small" color={theme.colors.textSub} />
+                    </View>
+                  )}
                 </ScrollView>
                 <View style={styles.imageDotsRow}>
-                  {(post.imageUrls.length > 0
-                    ? post.imageUrls
-                    : [post.image]
-                  ).map((_, index) => {
+                  {(postDisplayUrls.length > 0 ? postDisplayUrls : ["pending"]).map((_, index) => {
                     const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
                     const isActive = currentIndex === index;
                     return (
@@ -2297,8 +2373,8 @@ export default function HomeScreen() {
                                 source={{ uri: comment.ownerAvatar }}
                                 style={styles.commentAvatar}
                                 contentFit="cover"
-                                cachePolicy="disk"
-                                transition={300}
+                                cachePolicy="memory-disk"
+                                transition={0}
                               />
                             ) : (
                               <View style={styles.commentAvatarPlaceholder} />
@@ -2388,8 +2464,8 @@ export default function HomeScreen() {
                       source={{ uri }}
                       style={styles.viewerImage}
                       contentFit="contain"
-                      cachePolicy="disk"
-                      transition={300}
+                      cachePolicy="memory-disk"
+                      transition={0}
                     />
                   </View>
                 ))}
@@ -2548,6 +2624,12 @@ const createStyles = () =>
       borderRadius: 10,
       backgroundColor: theme.colors.surface,
     },
+    storyAvatarPlaceholder: {
+      width: 54,
+      height: 54,
+      borderRadius: 10,
+      backgroundColor: theme.colors.surface,
+    },
     storyAddButton: {
       position: "absolute",
       right: -2,
@@ -2645,6 +2727,11 @@ const createStyles = () =>
     },
     imageSlide: {
       maxWidth: "100%",
+    },
+    imageLoadingSkeleton: {
+      backgroundColor: theme.colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
     },
     imageDotsRow: {
       flexDirection: "row",

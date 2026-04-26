@@ -196,8 +196,7 @@ export default function ProfileDetailScreen() {
 
         const renderPosts = await Promise.all(
           ownPosts.map(async (item) => {
-            let image =
-              "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+            let image = "";
             if (item.imageKey) {
               try {
                 const resolved = await getUrl({ path: item.imageKey });
@@ -206,8 +205,7 @@ export default function ProfileDetailScreen() {
                   resolved.url.toString(),
                 );
               } catch {
-                image =
-                  "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+                image = "";
               }
             }
             return {

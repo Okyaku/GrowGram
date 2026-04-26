@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  InteractionManager,
   Keyboard,
   GestureResponderEvent,
   Pressable,
@@ -59,8 +60,7 @@ const STORY_DURATION_MS = 5000;
 const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 const STORY_CLOSE_SWIPE_THRESHOLD = 80;
 const STORY_VIEWED_STORAGE_KEY = "story-viewed-by-owner-v1";
-const AVATAR_PLACEHOLDER_URL =
-  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200";
+const AVATAR_PLACEHOLDER_URL = "";
 
 const readViewedStoryState = async () => {
   try {
@@ -299,6 +299,7 @@ export default function StoryViewScreen() {
   const [message, setMessage] = React.useState("");
   const [isSendingMessage, setIsSendingMessage] = React.useState(false);
   const [isPlaybackPaused, setIsPlaybackPaused] = React.useState(false);
+  const [isImageLoaded, setIsImageLoaded] = React.useState(false);
   const [progressBarWidth, setProgressBarWidth] = React.useState(0);
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     label: string;
@@ -669,6 +670,10 @@ export default function StoryViewScreen() {
     progressAnimValue.setValue(0);
   }, [activeIndex, reactionRecordIdByStory, story]);
 
+  React.useEffect(() => {
+    setIsImageLoaded(false);
+  }, [activeIndex]);
+
   const goNextStory = React.useCallback(() => {
     if (activeIndex >= storyQueue.length - 1) {
       router.back();
@@ -691,7 +696,7 @@ export default function StoryViewScreen() {
   }, [activeIndex, progressAnimValue]);
 
   React.useEffect(() => {
-    if (isPlaybackPaused || storyQueue.length === 0) {
+    if (isPlaybackPaused || storyQueue.length === 0 || !isImageLoaded) {
       return;
     }
 
@@ -705,7 +710,7 @@ export default function StoryViewScreen() {
     progressAnimValue.stopAnimation();
     progressAnimValue.setValue(0);
 
-    const startTimer = setTimeout(() => {
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
       const animation = Animated.timing(progressAnimValue, {
         toValue: 1,
         duration: STORY_DURATION_MS,
@@ -717,15 +722,22 @@ export default function StoryViewScreen() {
           goNextStory();
         }
       });
-    }, 100);
+    });
 
     return () => {
-      clearTimeout(startTimer);
+      interactionTask.cancel();
       progressAnimationRef.current?.stop();
       progressAnimationRef.current = null;
       progressAnimValue.stopAnimation();
     };
-  }, [activeIndex, goNextStory, isPlaybackPaused, progressAnimValue, storyQueue]);
+  }, [
+    activeIndex,
+    goNextStory,
+    isImageLoaded,
+    isPlaybackPaused,
+    progressAnimValue,
+    storyQueue,
+  ]);
 
 
   // 受け取った初期データを最優先で使い、開いた瞬間に表示する
@@ -1061,6 +1073,7 @@ export default function StoryViewScreen() {
               transition={0}
               cachePolicy="memory-disk"
               priority="high"
+              onLoad={() => setIsImageLoaded(true)}
             />
           </View>
           <Pressable
