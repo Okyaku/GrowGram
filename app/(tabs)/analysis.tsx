@@ -77,23 +77,21 @@ const leaders = [
     name: "Kenji Tanaka",
     id: "@KNTNKA",
     points: 4820,
-    avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?w=200",
+    avatar: "",
   },
   {
     rank: 2,
     name: "Aria Sato",
     id: "@ARIASATO",
     points: 4150,
-    avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200",
+    avatar: "",
   },
   {
     rank: 3,
     name: "Kaito Ito",
     id: "@KTOITO",
     points: 3980,
-    avatar:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200",
+    avatar: "",
   },
 ];
 

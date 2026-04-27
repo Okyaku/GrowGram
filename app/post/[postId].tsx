@@ -2,7 +2,6 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,11 +11,13 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { getThemeMode, theme } from "../../src/theme";
 
 type CloudPost = {
@@ -228,6 +229,18 @@ export default function PostDetailScreen() {
     () => (Array.isArray(postData) ? postData[0] : postData) ?? "",
     [postData],
   );
+  const parsedRoutePostData = React.useMemo<SelectedPostPayload | null>(() => {
+    if (!normalizedPostData) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(normalizedPostData) as SelectedPostPayload;
+    } catch {
+      return null;
+    }
+  }, [normalizedPostData]);
+  const hasInitialPayload = parsedRoutePostData !== null;
 
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -287,56 +300,52 @@ export default function PostDetailScreen() {
   );
 
   React.useEffect(() => {
-    if (!normalizedPostData) {
+    if (!parsedRoutePostData) {
       return;
     }
 
-    try {
-      const parsed = JSON.parse(normalizedPostData) as SelectedPostPayload;
-      setSelectedPost(parsed);
-      if (__DEV__) {
-        console.log("[PostDetail] selected post from route:", parsed);
-      }
-
-      setTitle(parsed.title ?? "投稿");
-      setContent(parsed.content ?? "");
-      setEditableTitle(parsed.title ?? "");
-      setEditableContent(parsed.content ?? "");
-      setCreatedAt(parsed.createdAt ?? "");
-      const payloadImageUrls = (parsed.imageUrls ?? []).filter((url) =>
-        Boolean(url),
-      );
-      const payloadImageKeys = parsed.imageKeys ?? [];
-
-      if (payloadImageUrls.length > 0) {
-        const initialImages = payloadImageUrls.map((url, index) => ({
-          key: payloadImageKeys[index] ?? url,
-          url,
-        }));
-        setImageItems(initialImages);
-        setEditableImageItems(initialImages);
-        setImageUrl(initialImages[0]?.url ?? null);
-      } else if (parsed.imageUrl) {
-        const initialImage = {
-          key: parsed.imageUrl,
-          url: parsed.imageUrl,
-        } satisfies ResolvedImageItem;
-        setImageItems([initialImage]);
-        setEditableImageItems([initialImage]);
-        setImageUrl(parsed.imageUrl);
-      }
-    } catch (error) {
-      if (__DEV__) {
-        console.log("[PostDetail] failed to parse postData:", error);
-      }
+    setSelectedPost(parsedRoutePostData);
+    if (__DEV__) {
+      console.log("[PostDetail] selected post from route:", parsedRoutePostData);
     }
-  }, [normalizedPostData]);
+
+    setTitle(parsedRoutePostData.title ?? "投稿");
+    setContent(parsedRoutePostData.content ?? "");
+    setEditableTitle(parsedRoutePostData.title ?? "");
+    setEditableContent(parsedRoutePostData.content ?? "");
+    setCreatedAt(parsedRoutePostData.createdAt ?? "");
+    const payloadImageUrls = (parsedRoutePostData.imageUrls ?? []).filter(
+      (url) => Boolean(url),
+    );
+    const payloadImageKeys = parsedRoutePostData.imageKeys ?? [];
+
+    if (payloadImageUrls.length > 0) {
+      const initialImages = payloadImageUrls.map((url, index) => ({
+        key: payloadImageKeys[index] ?? url,
+        url,
+      }));
+      setImageItems(initialImages);
+      setEditableImageItems(initialImages);
+      setImageUrl(initialImages[0]?.url ?? null);
+    } else if (parsedRoutePostData.imageUrl) {
+      const initialImage = {
+        key: parsedRoutePostData.imageUrl,
+        url: parsedRoutePostData.imageUrl,
+      } satisfies ResolvedImageItem;
+      setImageItems([initialImage]);
+      setEditableImageItems([initialImage]);
+      setImageUrl(parsedRoutePostData.imageUrl);
+    }
+
+    // Route payload exists, so render immediately and sync in background.
+    setIsLoading(false);
+  }, [parsedRoutePostData]);
 
   React.useEffect(() => {
     let isMounted = true;
 
     const loadPost = async () => {
-      const targetPostId = normalizedPostId || selectedPost?.id || "";
+      const targetPostId = normalizedPostId || parsedRoutePostData?.id || "";
       if (!targetPostId) {
         setIsLoading(false);
         return;
@@ -507,7 +516,7 @@ export default function PostDetailScreen() {
               const resolved = await getUrl({ path: source });
               return {
                 key: source,
-                url: resolved.url.toString(),
+                url: toCloudFrontImageUrl(source, resolved.url.toString()),
               } satisfies ResolvedImageItem;
             } catch {
               return null;
@@ -550,7 +559,41 @@ export default function PostDetailScreen() {
     return () => {
       isMounted = false;
     };
-  }, [client, normalizedPostId, refreshTick, selectedPost?.id]);
+  }, [client, normalizedPostId, parsedRoutePostData?.id, refreshTick]);
+
+  React.useEffect(() => {
+    const imageUrls = new Set<string>();
+
+    imageItems.forEach((item) => {
+      if (item.url) {
+        imageUrls.add(item.url);
+      }
+    });
+
+    editableImageItems.forEach((item) => {
+      if (item.url) {
+        imageUrls.add(item.url);
+      }
+    });
+
+    if (imageUrl) {
+      imageUrls.add(imageUrl);
+    }
+
+    if (imageUrls.size === 0) {
+      return;
+    }
+
+    void Promise.all(
+      Array.from(imageUrls).map(async (url) => {
+        try {
+          await Image.prefetch(url);
+        } catch {
+          // Ignore individual prefetch failures.
+        }
+      }),
+    );
+  }, [editableImageItems, imageItems, imageUrl]);
 
   const targetPostId = normalizedPostId || selectedPost?.id || "";
 
@@ -815,7 +858,7 @@ export default function PostDetailScreen() {
         <View style={styles.iconButtonDummy} />
       </View>
 
-      {isLoading ? (
+      {isLoading && !hasInitialPayload ? (
         <View style={styles.centerBox}>
           <ActivityIndicator size="small" color={theme.colors.primary} />
         </View>
@@ -836,7 +879,9 @@ export default function PostDetailScreen() {
                   key={`${item.key}-${index}`}
                   source={{ uri: item.url }}
                   style={[styles.image, { width: imageWidth, height: imageHeight }]}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="disk"
+                  transition={300}
                 />
               ))}
             </ScrollView>
@@ -848,7 +893,9 @@ export default function PostDetailScreen() {
                 styles.singleImage,
                 { width: imageWidth, height: imageHeight },
               ]}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={300}
             />
           ) : imageUrl ? (
             <Image
@@ -858,7 +905,9 @@ export default function PostDetailScreen() {
                 styles.singleImage,
                 { width: imageWidth, height: imageHeight },
               ]}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={300}
             />
           ) : null}
           {imageItems.length > 1 ? (
@@ -901,7 +950,13 @@ export default function PostDetailScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {editableImageItems.map((item, index) => (
                     <View key={`${item.key}-${index}`} style={styles.editImageItem}>
-                      <Image source={{ uri: item.url }} style={styles.editImagePreview} />
+                      <Image
+                        source={{ uri: item.url }}
+                        style={styles.editImagePreview}
+                        contentFit="cover"
+                        cachePolicy="disk"
+                        transition={300}
+                      />
                       <Pressable
                         style={styles.editImageRemoveButton}
                         onPress={() => onRemoveEditableImage(index)}

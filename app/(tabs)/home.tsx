@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -12,13 +11,15 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { useRoadmap } from "../../src/store/roadmap-context";
 import { useTabScrollTop } from "../../src/store/tab-scroll-top-context";
 import { theme } from "../../src/theme";
@@ -147,6 +148,7 @@ type StoryItem = {
   image: string;
   active: boolean;
   owner: string;
+  allStories: any[]; // ⭕️ これを1行足す！
 };
 
 const utf8Bytes = (value: string): Uint8Array => {
@@ -455,11 +457,8 @@ const fallbackPosts: FeedPost[] = [
     userId: "unknown",
     userName: "NO POSTS YET",
     title: "WELCOME",
-    image:
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-    imageUrls: [
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-    ],
+    image: "",
+    imageUrls: [],
     log: "最初の投稿を作成するとここに表示されます。",
     tags: ["#welcome"],
     createdAt: "1970-01-01T00:00:00.000Z",
@@ -586,7 +585,10 @@ export default function HomeScreen() {
   );
 
   const loadFeed = React.useCallback(async () => {
-    const shouldBlockInitialRender = !hasLoadedInitialFeedRef.current;
+    const hasVisibleFeedData =
+      posts.some((post) => post.id !== "fallback") || stories.length > 0;
+    const shouldBlockInitialRender =
+      !hasLoadedInitialFeedRef.current && !hasVisibleFeedData;
     if (shouldBlockInitialRender) {
       setIsInitialFeedLoading(true);
     }
@@ -625,7 +627,7 @@ export default function HomeScreen() {
           return true;
         }
         return false;
-      };
+      }
 
       const normalizeOwner = (recordOwner?: string | null) => {
         if (!recordOwner) {
@@ -635,23 +637,16 @@ export default function HomeScreen() {
         return recordOwner.split("::").pop() ?? recordOwner;
       };
 
-      const [
-        postsResponse,
-        profilesResponse,
-        likesResponse,
-        savesResponse,
-        storiesResponse,
-        storyReactionsResponse,
-        commentsResponse,
-        commentLikesResponse,
-        directMessagesResponse,
-        receiptsResponse,
-      ] = await Promise.all([
-        client.graphql({ query: listPostsQuery }),
-        client.graphql({ query: listProfilesQuery }),
+      const [postsResponse, profilesResponse, storiesResponse] =
+        await Promise.all([
+          client.graphql({ query: listPostsQuery }),
+          client.graphql({ query: listProfilesQuery }),
+          client.graphql({ query: listStoriesQuery }),
+        ]);
+
+      const deferredMetadataPromise = Promise.all([
         client.graphql({ query: listPostLikesQuery }),
         client.graphql({ query: listPostSavesQuery }),
-        client.graphql({ query: listStoriesQuery }),
         client.graphql({ query: listStoryReactionsQuery }),
         client.graphql({ query: listPostCommentsQuery }),
         client.graphql({ query: listCommentLikesQuery }),
@@ -671,6 +666,298 @@ export default function HomeScreen() {
             data?: { listProfiles?: { items?: Array<CloudProfile | null> } };
           }
         ).data?.listProfiles?.items ?? [];
+      const storyItems =
+        (
+          storiesResponse as {
+            data?: { listStories?: { items?: Array<CloudStory | null> } };
+          }
+        ).data?.listStories?.items ?? [];
+      const profileWithAvatar = profileItems
+        .filter((item): item is CloudProfile => Boolean(item?.id))
+        .map((item) => ({
+          id: item.id,
+          owner: item.owner ?? "",
+          username: item.username ?? "",
+          displayName: item.displayName ?? item.username ?? "",
+          iconImageKey: item.iconImageKey ?? "",
+          avatarUrl: "",
+        }));
+      const profileByOwner = new Map(
+        profileWithAvatar.map((profile) => [profile.owner, profile]),
+      );
+      const usernameToProfileId: Record<string, string> = {};
+      profileItems
+        .filter((item): item is CloudProfile =>
+          Boolean(item?.id && item.username),
+        )
+        .forEach((item) => {
+          usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
+        });
+      setProfileIdByUsername(usernameToProfileId);
+
+      const normalizedPosts = postItems
+        .filter((item): item is CloudPost => Boolean(item?.id && item.content))
+        .filter((item) => item.isArchived !== true)
+        .map((item) => {
+          const postOwner = item.owner ?? "unknown";
+          const profile = profileByOwner.get(postOwner);
+          return {
+            id: item.id,
+            userId: postOwner,
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              postOwner.split("@")[0].toUpperCase(),
+            userAvatar: "",
+            title: item.title ?? "USER POST",
+            image: "",
+            imageUrls: [],
+            log: item.content,
+            tags: item.tags ?? [],
+            createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
+            imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
+            imageKeys:
+              item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
+            imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
+            passionCount: item.passion ?? 0,
+            logicCount: item.logic ?? 0,
+            routineCount: item.routine ?? 0,
+            likeCount: 0,
+            saveCount: 0,
+          } satisfies FeedPost;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+
+      const storyGroups = new Map<string, CloudStory[]>();
+      storyItems
+        .filter((item): item is CloudStory => Boolean(item?.id && item.imageKey))
+        .filter((item) => {
+          if (!item.createdAt) {
+            return true;
+          }
+          return (
+            Date.now() - new Date(item.createdAt).getTime() <
+            24 * 60 * 60 * 1000
+          );
+        })
+        .forEach((item) => {
+          const userOwner = item.owner ?? "";
+          const existing = storyGroups.get(userOwner) ?? [];
+          storyGroups.set(userOwner, [...existing, item]);
+        });
+
+      const immediateStoryList = Array.from(storyGroups.entries()).map(
+        ([userOwner, items]) => {
+          const profile = profileByOwner.get(userOwner);
+          const sorted = [...items].sort(
+            (a, b) =>
+              new Date(a.createdAt || 0).getTime() -
+              new Date(b.createdAt || 0).getTime(),
+          );
+          const allStories = sorted.map((st) => ({
+            ...st,
+            imageUrl: "",
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              userOwner.split("@")[0].toUpperCase(),
+            userAvatar: "",
+          }));
+
+          return {
+            id: allStories[0]?.id ?? `${userOwner}-story`,
+            owner: userOwner,
+            userName:
+              profile?.displayName ||
+              profile?.username ||
+              userOwner.split("@")[0].toUpperCase(),
+            // Story ring should always represent the user avatar, never story content.
+            image: profile?.avatarUrl ?? "",
+            active: true,
+            allStories,
+          };
+        },
+      );
+
+      const myProfile = profileByOwner.get(owner) as any;
+      let myResolvedAvatar = "";
+      if (myProfile?.iconImageKey) {
+        try {
+          const avatarResult = await getUrl({ path: myProfile.iconImageKey });
+          myResolvedAvatar = toCloudFrontImageUrl(
+            myProfile.iconImageKey,
+            avatarResult.url.toString(),
+          );
+        } catch {
+          myResolvedAvatar = "";
+        }
+      }
+
+      const existingMyStory = immediateStoryList.find((s) => s.owner === owner);
+      const myStoryItem = existingMyStory
+        ? {
+            ...existingMyStory,
+            image: myResolvedAvatar || existingMyStory.image,
+          }
+        : {
+            id: "my-create",
+            owner,
+            userName: myProfile?.displayName || "MY GROW",
+            image: myResolvedAvatar,
+            active: true,
+            allStories: [] as any[],
+          };
+      const otherStories = immediateStoryList.filter((s) => s.owner !== owner);
+
+      if (normalizedPosts.length > 0) {
+        setPosts(normalizedPosts);
+      } else {
+        setPosts(fallbackPosts);
+      }
+      setStories([myStoryItem, ...otherStories] as any);
+      hasLoadedInitialFeedRef.current = true;
+      setIsInitialFeedLoading(false);
+
+      void (async () => {
+        await Promise.all(
+          normalizedPosts.map(async (post) => {
+            const imageKeys = post.imageKeys ?? [];
+            const ownerProfile = profileByOwner.get(post.userId);
+            let resolvedAvatar = "";
+            if (ownerProfile?.iconImageKey) {
+              try {
+                const avatarResult = await getUrl({
+                  path: ownerProfile.iconImageKey,
+                });
+                resolvedAvatar = toCloudFrontImageUrl(
+                  ownerProfile.iconImageKey,
+                  avatarResult.url.toString(),
+                );
+              } catch {
+                resolvedAvatar = "";
+              }
+            }
+
+            if (imageKeys.length === 0) {
+              if (resolvedAvatar) {
+                setPosts((prev) =>
+                  prev.map((item) =>
+                    item.id === post.id ? { ...item, userAvatar: resolvedAvatar } : item,
+                  ),
+                );
+              }
+              return;
+            }
+
+            const urls = await Promise.all(
+              imageKeys.map(async (key) => {
+                try {
+                  const resolved = await getUrl({ path: key });
+                  return toCloudFrontImageUrl(key, resolved.url.toString());
+                } catch {
+                  return "";
+                }
+              }),
+            );
+            const filtered = urls.filter((url) => Boolean(url));
+
+            if (filtered.length > 0) {
+              void Promise.all(
+                filtered.map((url) => Image.prefetch(url).catch(() => {})),
+              );
+            }
+            if (resolvedAvatar) {
+              void Image.prefetch(resolvedAvatar).catch(() => {});
+            }
+
+            setPosts((prev) =>
+              prev.map((item) =>
+                item.id === post.id
+                  ? {
+                      ...item,
+                      userAvatar: resolvedAvatar || item.userAvatar,
+                      image: filtered[0] ?? "",
+                      imageUrls: filtered,
+                      imageCount: filtered.length > 0 ? filtered.length : item.imageCount,
+                    }
+                  : item,
+              ),
+            );
+          }),
+        );
+      })();
+
+      void (async () => {
+        await Promise.all(
+          immediateStoryList.map(async (storyGroup) => {
+            const ownerProfile = profileByOwner.get(storyGroup.owner) as any;
+            let resolvedAvatar = "";
+            if (ownerProfile?.iconImageKey) {
+              try {
+                const avatarResult = await getUrl({ path: ownerProfile.iconImageKey });
+                resolvedAvatar = toCloudFrontImageUrl(
+                  ownerProfile.iconImageKey,
+                  avatarResult.url.toString(),
+                );
+              } catch {
+                resolvedAvatar = "";
+              }
+            }
+
+            const updatedStories = await Promise.all(
+              (storyGroup.allStories ?? []).map(async (entry: any) => {
+                if (!entry.imageKey) {
+                  return entry;
+                }
+                try {
+                  const resolved = await getUrl({ path: entry.imageKey });
+                  const imageUrl = toCloudFrontImageUrl(
+                    entry.imageKey,
+                    resolved.url.toString(),
+                  );
+                  void Image.prefetch(imageUrl).catch(() => {});
+                  return {
+                    ...entry,
+                    imageUrl,
+                    userAvatar: resolvedAvatar,
+                  };
+                } catch {
+                  return {
+                    ...entry,
+                    userAvatar: resolvedAvatar,
+                  };
+                }
+              }),
+            );
+
+            setStories((prev) =>
+              prev.map((item: any) =>
+                item.owner === storyGroup.owner
+                  ? {
+                      ...item,
+                      image: resolvedAvatar,
+                      allStories: updatedStories,
+                    }
+                  : item,
+              ),
+            );
+          }),
+        );
+      })();
+
+      const [
+        likesResponse,
+        savesResponse,
+        storyReactionsResponse,
+        commentsResponse,
+        commentLikesResponse,
+        directMessagesResponse,
+        receiptsResponse,
+      ] = await deferredMetadataPromise;
+
       const likeItems =
         (
           likesResponse as {
@@ -683,12 +970,6 @@ export default function HomeScreen() {
             data?: { listPostSaves?: { items?: Array<CloudSave | null> } };
           }
         ).data?.listPostSaves?.items ?? [];
-      const storyItems =
-        (
-          storiesResponse as {
-            data?: { listStories?: { items?: Array<CloudStory | null> } };
-          }
-        ).data?.listStories?.items ?? [];
       const storyReactionItems =
         (
           storyReactionsResponse as {
@@ -729,41 +1010,6 @@ export default function HomeScreen() {
             };
           }
         ).data?.listReadReceipts?.items ?? [];
-
-      const profileWithAvatar = await Promise.all(
-        profileItems
-          .filter((item): item is CloudProfile => Boolean(item?.id))
-          .map(async (item) => {
-            let avatarUrl: string | undefined;
-            if (item.iconImageKey) {
-              try {
-                const resolved = await getUrl({ path: item.iconImageKey });
-                avatarUrl = resolved.url.toString();
-              } catch {
-                avatarUrl = undefined;
-              }
-            }
-            return {
-              id: item.id,
-              owner: item.owner ?? "",
-              username: item.username ?? "",
-              displayName: item.displayName ?? item.username ?? "",
-              avatarUrl,
-            };
-          }),
-      );
-      const profileByOwner = new Map(
-        profileWithAvatar.map((profile) => [profile.owner, profile]),
-      );
-      const usernameToProfileId: Record<string, string> = {};
-      profileItems
-        .filter((item): item is CloudProfile =>
-          Boolean(item?.id && item.username),
-        )
-        .forEach((item) => {
-          usernameToProfileId[(item.username ?? "").toLowerCase()] = item.id;
-        });
-      setProfileIdByUsername(usernameToProfileId);
       const passionCountByPost: Record<string, number> = {};
       const logicCountByPost: Record<string, number> = {};
       const routineCountByPost: Record<string, number> = {};
@@ -870,7 +1116,7 @@ export default function HomeScreen() {
           .filter(
             (item) => myPostIds.has(item.postId) && !isOwnedByMe(item.owner),
           ).length *
-          30 +
+        30 +
         storyReactionItems
           .filter((item): item is CloudStoryReaction =>
             Boolean(
@@ -880,7 +1126,7 @@ export default function HomeScreen() {
           .filter(
             (item) => myStoryIds.has(item.storyId) && item.owner !== owner,
           ).length *
-          30;
+        30;
 
       if (nextReactionBonusScore !== reactionBonusScore) {
         adjustScore(nextReactionBonusScore - reactionBonusScore);
@@ -986,160 +1232,15 @@ export default function HomeScreen() {
       setCommentLikeRecordIdByComment(myCommentLikeRecordIds);
       setCommentLikeRecordIdsByComment(myCommentLikeRecordIdsByComment);
 
-      const normalizedPosts = postItems
-        .filter((item): item is CloudPost => Boolean(item?.id && item.content))
-        .filter((item) => item.isArchived !== true)
-        .map((item) => {
-          const postOwner = item.owner ?? "unknown";
-          const profile = profileByOwner.get(postOwner);
-          return {
-            id: item.id,
-            userId: postOwner,
-            userName:
-              profile?.displayName ||
-              profile?.username ||
-              postOwner.split("@")[0].toUpperCase(),
-            userAvatar: profile?.avatarUrl,
-            title: item.title ?? "USER POST",
-            image:
-              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-            imageUrls: [
-              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1000",
-            ],
-            log: item.content,
-            tags: item.tags ?? [],
-            createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
-            imageKey: item.imageKey ?? item.imageKeys?.[0] ?? undefined,
-            imageKeys:
-              item.imageKeys ?? (item.imageKey ? [item.imageKey] : undefined),
-            imageCount: item.imageKeys?.length ?? (item.imageKey ? 1 : 0),
-            passionCount: passionCountByPost[item.id] ?? 0,
-            logicCount: logicCountByPost[item.id] ?? 0,
-            routineCount: routineCountByPost[item.id] ?? 0,
-            likeCount: 0,
-            saveCount: saveCountByPost[item.id] ?? 0,
-          } satisfies FeedPost;
-        })
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
-
-      const postsWithImage = await Promise.all(
-        normalizedPosts.map(async (post) => {
-          if (!post.imageKeys || post.imageKeys.length === 0) {
-            return post;
-          }
-          try {
-            const urls = await Promise.all(
-              post.imageKeys.map(async (key) => {
-                const resolved = await getUrl({ path: key });
-                return resolved.url.toString();
-              }),
-            );
-            return {
-              ...post,
-              image: urls[0] ?? post.image,
-              imageUrls: urls.length > 0 ? urls : post.imageUrls,
-              imageCount: urls.length > 0 ? urls.length : post.imageCount,
-            };
-          } catch {
-            return post;
-          }
-        }),
+      setPosts((prev) =>
+        prev.map((post) => ({
+          ...post,
+          passionCount: passionCountByPost[post.id] ?? post.passionCount,
+          logicCount: logicCountByPost[post.id] ?? post.logicCount,
+          routineCount: routineCountByPost[post.id] ?? post.routineCount,
+          saveCount: saveCountByPost[post.id] ?? post.saveCount,
+        })),
       );
-
-      if (postsWithImage.length > 0) {
-        setPosts(postsWithImage);
-      } else {
-        setPosts(fallbackPosts);
-      }
-
-      const storyByOwner = new Map<string, CloudStory>();
-      storyItems
-        .filter((item): item is CloudStory =>
-          Boolean(item?.id && item.imageKey),
-        )
-        .filter((item) => {
-          if (!item.createdAt) {
-            return true;
-          }
-          const createdAtMs = new Date(item.createdAt).getTime();
-          if (Number.isNaN(createdAtMs)) {
-            return true;
-          }
-          return Date.now() - createdAtMs < 24 * 60 * 60 * 1000;
-        })
-        .forEach((item) => {
-          const storyOwner = item.owner ?? "";
-          const current = storyByOwner.get(storyOwner);
-          const currentTime = current?.createdAt
-            ? new Date(current.createdAt).getTime()
-            : 0;
-          const nextTime = item.createdAt
-            ? new Date(item.createdAt).getTime()
-            : 0;
-          if (!current || nextTime > currentTime) {
-            storyByOwner.set(storyOwner, item);
-          }
-        });
-
-      const storyList = await Promise.all(
-        Array.from(storyByOwner.values()).map(async (story) => {
-          let imageUrl =
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          try {
-            const resolved = await getUrl({ path: story.imageKey });
-            imageUrl = resolved.url.toString();
-          } catch {
-            imageUrl =
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300";
-          }
-          const profile = profileByOwner.get(story.owner ?? "");
-          return {
-            id: story.id,
-            owner: story.owner ?? "",
-            userName:
-              profile?.displayName ||
-              profile?.username ||
-              (story.owner ?? "USER").split("@")[0].toUpperCase(),
-            image: imageUrl,
-            active: owner === story.owner,
-          } satisfies StoryItem;
-        }),
-      );
-
-      const hasMyStory = storyList.some((story) => story.owner === owner);
-      const myProfile = profileByOwner.get(owner);
-      const myStoryItem: StoryItem = hasMyStory
-        ? (storyList.find((story) => story.owner === owner) as StoryItem)
-        : {
-            id: "my-create",
-            owner,
-            userName:
-              myProfile?.displayName || myProfile?.username || "MY GROW",
-            image:
-              myProfile?.avatarUrl ||
-              "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300",
-            active: true,
-          };
-
-      const others = storyList.filter((story) => story.owner !== owner);
-      const nextStories = [myStoryItem, ...others];
-
-      await Promise.all(
-        nextStories.map(async (story) => {
-          try {
-            await Image.prefetch(story.image);
-          } catch {
-            // Ignore failed prefetch and still render using the original URL.
-          }
-        }),
-      );
-
-      setStories(nextStories);
-      hasLoadedInitialFeedRef.current = true;
-      setIsInitialFeedLoading(false);
     } catch (error) {
       const authErrorText = JSON.stringify(error);
       const isNoCurrentUserError =
@@ -1165,13 +1266,13 @@ export default function HomeScreen() {
         setIsInitialFeedLoading(false);
       }
     }
-  }, [adjustScore, client, reactionBonusScore, router]);
+  }, [adjustScore, client, posts, reactionBonusScore, router, stories]);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      void loadFeed();
-    }, [loadFeed]),
-  );
+  React.useEffect(() => {
+    void loadFeed();
+    // 初回マウント時のみロードし、フォーカス復帰では再取得しない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onRefresh = React.useCallback(async () => {
     if (isRefreshingRef.current) {
@@ -1445,6 +1546,42 @@ export default function HomeScreen() {
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    const imageUrls = new Set<string>();
+
+    stories.forEach((story) => {
+      if (story.image) {
+        imageUrls.add(story.image);
+      }
+    });
+
+    posts.forEach((post) => {
+      const postUrls = post.imageUrls.length > 0 ? post.imageUrls : [post.image];
+      postUrls.forEach((url) => {
+        if (url) {
+          imageUrls.add(url);
+        }
+      });
+      if (post.userAvatar) {
+        imageUrls.add(post.userAvatar);
+      }
+    });
+
+    if (imageUrls.size === 0) {
+      return;
+    }
+
+    void Promise.all(
+      Array.from(imageUrls).map(async (url) => {
+        try {
+          await Image.prefetch(url);
+        } catch {
+          // Ignore individual prefetch failures to avoid blocking UI.
+        }
+      }),
+    );
+  }, [posts, stories]);
 
   const toggleSave = React.useCallback(
     async (postId: string) => {
@@ -1779,6 +1916,46 @@ export default function HomeScreen() {
     [onRefresh, scrollY],
   );
 
+  const openStoryWithInitialData = React.useCallback((targetId: string) => {
+    const matchedGroup = stories.find(
+      (s: any) =>
+        s.id === targetId ||
+        (s.allStories && s.allStories.some((as: any) => as.id === targetId))
+    );
+
+    if (!matchedGroup || !matchedGroup.allStories || matchedGroup.allStories.length === 0) return;
+
+    // 5️⃣ globalThis に全ストーリーデータをセット（URL長制限回避）
+    (globalThis as any).sharedStoryQueue = matchedGroup.allStories;
+
+    const idx = matchedGroup.allStories.findIndex((as: any) => as.id === targetId);
+
+    // 6️⃣ globalThis 設定と同時に段階先読み prefetch（スワイプ対応）
+    const activeAndNext = matchedGroup.allStories.slice(
+      idx,
+      Math.min(idx + 2, matchedGroup.allStories.length)
+    );
+    Promise.all(
+      activeAndNext.map((story) => {
+        try {
+          return Image.prefetch(story.imageUrl || "");
+        } catch {
+          return Promise.resolve();
+        }
+      })
+    ).catch(() => {
+      // 非同期 prefetch 失敗は無視
+    });
+
+    router.push({
+      pathname: "/story/[storyId]",
+      params: {
+        storyId: targetId,
+        initialIndex: String(Math.max(0, idx)),
+      },
+    });
+  }, [router, stories]);
+
   const headerCompensateTranslateY = React.useMemo(
     () =>
       scrollY.interpolate({
@@ -1897,13 +2074,14 @@ export default function HomeScreen() {
               <Pressable
                 key={story.id}
                 style={styles.storyItem}
-                onPress={() =>
-                  router.push(
-                    story.id === "my-create"
-                      ? "/story-create"
-                      : `/story/${story.id}`,
-                  )
-                }
+                onPress={() => {
+                  if (story.id === "my-create") {
+                    router.push("/story-create");
+                    return;
+                  }
+
+                  openStoryWithInitialData(story.id);
+                }}
               >
                 <View style={styles.storyRingWrapper}>
                   <View
@@ -1912,10 +2090,24 @@ export default function HomeScreen() {
                       story.active && styles.storyRingActive,
                     ]}
                   >
-                    <Image
-                      source={{ uri: story.image }}
-                      style={styles.storyAvatar}
-                    />
+                    {story.image ? (
+                      <Image
+                        source={{ uri: story.image }}
+                        style={styles.storyAvatar}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        priority="high"
+                        transition={0}
+                      />
+                    ) : (
+                      <View style={styles.storyAvatarPlaceholder}>
+                        <Ionicons
+                          name="person"
+                          size={18}
+                          color={theme.colors.textSub}
+                        />
+                      </View>
+                    )}
                   </View>
                   {story.owner === currentOwner && currentOwner.length > 0 ? (
                     <Pressable
@@ -1942,6 +2134,12 @@ export default function HomeScreen() {
         </View>
 
         {posts.map((post) => {
+          const postDisplayUrls =
+            post.imageUrls.length > 0
+              ? post.imageUrls.filter((url) => Boolean(url))
+              : post.image
+                ? [post.image]
+                : [];
           const isOwner =
             currentOwner.length > 0 && post.userId === currentOwner;
           const commentCount = (commentsByPost[post.id] ?? []).length;
@@ -1951,12 +2149,28 @@ export default function HomeScreen() {
                 <View style={styles.cardHeader}>
                   <Pressable
                     style={styles.userRow}
-                    onPress={() => router.push(`/profile/${post.userId}`)}
+                    onPress={() => {
+                      const matchedStory = stories.find(
+                        (item) =>
+                          item.id !== "my-create" && item.owner === post.userId,
+                      );
+
+                      if (matchedStory) {
+                        // 🔥 修正部分！ `openStoryWithInitialData` を呼び出すように変更！
+                        openStoryWithInitialData(matchedStory.id);
+                        return;
+                      }
+
+                      router.push(`/profile/${post.userId}`);
+                    }}
                   >
                     {post.userAvatar ? (
                       <Image
                         source={{ uri: post.userAvatar }}
                         style={styles.userAvatar}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={0}
                       />
                     ) : (
                       <View style={styles.userAvatarPlaceholder} />
@@ -1983,37 +2197,37 @@ export default function HomeScreen() {
                   }}
                   style={styles.imageCarousel}
                 >
-                  {(post.imageUrls.length > 0
-                    ? post.imageUrls
-                    : [post.image]
-                  ).map((uri, index) => (
-                    <Pressable
-                      key={`${post.id}-${index}-${uri}`}
-                      onLongPress={() => onPostLongPress(post.id)}
-                      onPress={() =>
-                        onPostTap(
-                          post.id,
-                          post.imageUrls.length > 0
-                            ? post.imageUrls
-                            : [post.image],
-                          index,
-                        )
-                      }
-                      style={[styles.imageSlide, { width: cardImageWidth }]}
+                  {postDisplayUrls.length > 0 ? (
+                    postDisplayUrls.map((uri, index) => (
+                      <Pressable
+                        key={`${post.id}-${index}-${uri}`}
+                        onLongPress={() => onPostLongPress(post.id)}
+                        onPress={() => onPostTap(post.id, postDisplayUrls, index)}
+                        style={[styles.imageSlide, { width: cardImageWidth }]}
+                      >
+                        <Image
+                          source={{ uri }}
+                          style={[styles.image, { height: cardImageHeight }]}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={0}
+                        />
+                      </Pressable>
+                    ))
+                  ) : (
+                    <View
+                      style={[
+                        styles.imageSlide,
+                        styles.imageLoadingSkeleton,
+                        { width: cardImageWidth, height: cardImageHeight },
+                      ]}
                     >
-                      <Image
-                        source={{ uri }}
-                        style={[styles.image, { height: cardImageHeight }]}
-                        resizeMode="cover"
-                      />
-                    </Pressable>
-                  ))}
+                      <ActivityIndicator size="small" color={theme.colors.textSub} />
+                    </View>
+                  )}
                 </ScrollView>
                 <View style={styles.imageDotsRow}>
-                  {(post.imageUrls.length > 0
-                    ? post.imageUrls
-                    : [post.image]
-                  ).map((_, index) => {
+                  {(postDisplayUrls.length > 0 ? postDisplayUrls : ["pending"]).map((_, index) => {
                     const currentIndex = visibleImageIndexByPost[post.id] ?? 0;
                     const isActive = currentIndex === index;
                     return (
@@ -2263,6 +2477,9 @@ export default function HomeScreen() {
                               <Image
                                 source={{ uri: comment.ownerAvatar }}
                                 style={styles.commentAvatar}
+                                contentFit="cover"
+                                cachePolicy="memory-disk"
+                                transition={0}
                               />
                             ) : (
                               <View style={styles.commentAvatarPlaceholder} />
@@ -2366,7 +2583,9 @@ export default function HomeScreen() {
                     <Image
                       source={{ uri }}
                       style={styles.viewerImage}
-                      resizeMode="contain"
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
+                      transition={0}
                     />
                   </View>
                 ))}
@@ -2514,7 +2733,7 @@ const createStyles = () =>
       borderColor: theme.colors.border,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.colors.white,
+      backgroundColor: theme.colors.surface,
     },
     storyRingActive: {
       borderColor: theme.colors.primary,
@@ -2524,6 +2743,14 @@ const createStyles = () =>
       height: 54,
       borderRadius: 10,
       backgroundColor: theme.colors.surface,
+    },
+    storyAvatarPlaceholder: {
+      width: 54,
+      height: 54,
+      borderRadius: 10,
+      backgroundColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
     },
     storyAddButton: {
       position: "absolute",
@@ -2622,6 +2849,11 @@ const createStyles = () =>
     },
     imageSlide: {
       maxWidth: "100%",
+    },
+    imageLoadingSkeleton: {
+      backgroundColor: theme.colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
     },
     imageDotsRow: {
       flexDirection: "row",

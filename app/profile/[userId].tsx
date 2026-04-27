@@ -7,6 +7,7 @@ import { getUrl } from "aws-amplify/storage";
 import { BackButton } from "../../src/components/common/BackButton";
 import { CustomButton, ScreenContainer } from "../../src/components/common";
 import { Text } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { theme } from "../../src/theme";
 
 type CloudProfile = {
@@ -166,7 +167,12 @@ export default function ProfileDetailScreen() {
         if (loadedProfile?.iconImageKey) {
           try {
             const resolved = await getUrl({ path: loadedProfile.iconImageKey });
-            setAvatarUrl(resolved.url.toString());
+            setAvatarUrl(
+              toCloudFrontImageUrl(
+                loadedProfile.iconImageKey,
+                resolved.url.toString(),
+              ),
+            );
           } catch {
             setAvatarUrl(null);
           }
@@ -190,15 +196,16 @@ export default function ProfileDetailScreen() {
 
         const renderPosts = await Promise.all(
           ownPosts.map(async (item) => {
-            let image =
-              "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+            let image = "";
             if (item.imageKey) {
               try {
                 const resolved = await getUrl({ path: item.imageKey });
-                image = resolved.url.toString();
+                image = toCloudFrontImageUrl(
+                  item.imageKey,
+                  resolved.url.toString(),
+                );
               } catch {
-                image =
-                  "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1000";
+                image = "";
               }
             }
             return {

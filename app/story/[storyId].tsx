@@ -4,10 +4,9 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  InteractionManager,
   Keyboard,
   GestureResponderEvent,
-  Image,
-  ImageBackground,
   Pressable,
   Platform,
   StyleSheet,
@@ -16,11 +15,13 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { generateClient } from "aws-amplify/api";
 import { getCurrentUser } from "aws-amplify/auth";
 import { getUrl } from "aws-amplify/storage";
 import { ScreenContainer } from "../../src/components/common";
 import { Text, TextInput } from "../../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../../src/services/aws/cdn";
 import { theme } from "../../src/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -49,16 +50,17 @@ type StoryReaction = {
 };
 
 type ReactionType = "passion" | "logic" | "routine";
-type StoryQueueItem = CloudStory & { imageUrl: string };
+type StoryQueueItem = CloudStory & {
+  imageUrl: string;
+  userName?: string;
+  userAvatar?: string;
+};
 
 const STORY_DURATION_MS = 5000;
 const STORY_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 const STORY_CLOSE_SWIPE_THRESHOLD = 80;
 const STORY_VIEWED_STORAGE_KEY = "story-viewed-by-owner-v1";
-const STORY_PLACEHOLDER_URL =
-  "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200";
-const AVATAR_PLACEHOLDER_URL =
-  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200";
+const AVATAR_PLACEHOLDER_URL = "";
 
 const readViewedStoryState = async () => {
   try {
@@ -208,10 +210,76 @@ export default function StoryViewScreen() {
     () => generateClient({ authMode: "userPool" }),
     [],
   );
-  const { storyId } = useLocalSearchParams<{ storyId: string }>();
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>([]);
-  const [activeIndex, setActiveIndex] = React.useState(0);
+
+  // 🔥 最終奥義：URLからはIDだけを受け取り、巨大なデータはメモリから直接復元する！
+  const rawParams = useLocalSearchParams<{
+    storyId: string;
+    initialIndex?: string;
+  }>();
+
+  const storyId = rawParams.storyId;
+  const initialIndex = rawParams.initialIndex;
+
+  // メモリから受け取った全ストーリーをそのまま復元（API再取得なし）
+  const memoryQueue = (globalThis as any).sharedStoryQueue as
+    | Array<Partial<StoryQueueItem>>
+    | undefined;
+
+  const preloadedStoryQueue = React.useMemo(() => {
+    if (!Array.isArray(memoryQueue)) {
+      return [] as StoryQueueItem[];
+    }
+
+    return memoryQueue
+      .filter(
+        (item): item is StoryQueueItem =>
+          Boolean(item?.id && item.imageKey && item.imageUrl),
+      )
+      .map((item) => ({
+        id: item.id,
+        owner: item.owner ?? "",
+        imageKey: item.imageKey,
+        caption: item.caption ?? null,
+        createdAt: item.createdAt ?? null,
+        updatedAt: item.updatedAt ?? null,
+        imageUrl: item.imageUrl,
+        userName: item.userName,
+        userAvatar: item.userAvatar,
+      }));
+  }, [memoryQueue]);
+
+  const preloadedIndex = Number.parseInt(initialIndex ?? "0", 10);
+  const normalizedInitialIndex = Number.isNaN(preloadedIndex)
+    ? 0
+    : preloadedIndex;
+  const initialPreloadedActiveIndex = React.useMemo(() => {
+    if (preloadedStoryQueue.length === 0) {
+      return 0;
+    }
+
+    const byIdIndex = preloadedStoryQueue.findIndex(
+      (item) => item.id === storyId,
+    );
+    const active = byIdIndex >= 0 ? byIdIndex : normalizedInitialIndex;
+    return Math.max(0, Math.min(preloadedStoryQueue.length - 1, active));
+  }, [normalizedInitialIndex, preloadedStoryQueue, storyId]);
+  const preloadedImageUrl =
+    preloadedStoryQueue[
+      Math.max(0, Math.min(preloadedStoryQueue.length - 1, normalizedInitialIndex))
+    ]?.imageUrl ?? "";
+
+  // 初期データがある場合はローディングを出さない
+  const [isLoading, setIsLoading] = React.useState(
+    preloadedStoryQueue.length === 0,
+  );
+  
+  // ーーー ここから下はそのまま ーーー
+  const [storyQueue, setStoryQueue] = React.useState<StoryQueueItem[]>(
+    preloadedStoryQueue,
+  );
+  const [activeIndex, setActiveIndex] = React.useState(
+    initialPreloadedActiveIndex,
+  );
   const [profile, setProfile] = React.useState<CloudProfile | null>(null);
   const [profileAvatarUrl, setProfileAvatarUrl] = React.useState<string | null>(
     null,
@@ -230,8 +298,9 @@ export default function StoryViewScreen() {
   >({});
   const [message, setMessage] = React.useState("");
   const [isSendingMessage, setIsSendingMessage] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
   const [isPlaybackPaused, setIsPlaybackPaused] = React.useState(false);
+  const [isImageLoaded, setIsImageLoaded] = React.useState(false);
+  const [progressBarWidth, setProgressBarWidth] = React.useState(0);
   const [gestureFeedback, setGestureFeedback] = React.useState<{
     label: string;
     icon: "flame" | "bulb" | "ribbon";
@@ -241,6 +310,11 @@ export default function StoryViewScreen() {
   const dragY = React.useRef(new Animated.Value(0)).current;
   const keyboardOffset = React.useRef(new Animated.Value(0)).current;
   const feedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const prefetchedStoryImageUrlsRef = React.useRef<Set<string>>(new Set());
+  const progressAnimValue = React.useRef(new Animated.Value(0)).current;
+  const progressAnimationRef = React.useRef<Animated.CompositeAnimation | null>(
     null,
   );
   const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -264,24 +338,30 @@ export default function StoryViewScreen() {
       }),
     [dragY],
   );
+  const currentProgressScaleX = React.useMemo(
+    () =>
+      progressAnimValue.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0.0001, 1],
+        extrapolate: "clamp",
+      }),
+    [progressAnimValue],
+  );
+  const currentProgressTranslateX = React.useMemo(
+    () =>
+      progressAnimValue.interpolate({
+        inputRange: [0, 1],
+        outputRange: [-(progressBarWidth / 2), 0],
+        extrapolate: "clamp",
+      }),
+    [progressAnimValue, progressBarWidth],
+  );
   const closeStoryView = React.useCallback(() => {
     router.back();
   }, [router]);
 
   const loadProfileByOwner = React.useCallback(
     async (owner: string) => {
-      const resolveAvatarUrl = async (iconImageKey?: string | null) => {
-        if (!iconImageKey) {
-          return null;
-        }
-        try {
-          const resolved = await getUrl({ path: iconImageKey });
-          return resolved.url.toString();
-        } catch {
-          return null;
-        }
-      };
-
       if (!owner) {
         setProfile(null);
         setProfileAvatarUrl(null);
@@ -299,10 +379,7 @@ export default function StoryViewScreen() {
         ).data?.getProfile;
         if (loadedProfile?.id) {
           setProfile(loadedProfile);
-          setProfileAvatarUrl(
-            (await resolveAvatarUrl(loadedProfile.iconImageKey)) ??
-              AVATAR_PLACEHOLDER_URL,
-          );
+          setProfileAvatarUrl(AVATAR_PLACEHOLDER_URL);
           setRecipientUserId(loadedProfile.id);
           return;
         }
@@ -324,10 +401,7 @@ export default function StoryViewScreen() {
           ).data?.listProfiles?.items ?? [];
         const matched = profiles.find((item) => item?.owner === owner) ?? null;
         setProfile(matched ?? null);
-        setProfileAvatarUrl(
-          (await resolveAvatarUrl(matched?.iconImageKey)) ??
-            AVATAR_PLACEHOLDER_URL,
-        );
+        setProfileAvatarUrl(AVATAR_PLACEHOLDER_URL);
         setRecipientUserId(matched?.id ?? owner);
       } catch {
         setProfile(null);
@@ -339,81 +413,128 @@ export default function StoryViewScreen() {
   );
 
   React.useEffect(() => {
+    if (preloadedStoryQueue.length === 0) {
+      return;
+    }
+
+    setStoryQueue(preloadedStoryQueue);
+    setActiveIndex(initialPreloadedActiveIndex);
+    setIsLoading(false);
+  }, [initialPreloadedActiveIndex, preloadedStoryQueue]);
+
+  React.useEffect(() => {
     if (!storyId) {
       setIsLoading(false);
       return;
     }
 
+    if (preloadedStoryQueue.length > 0) {
+      const byIdIndex = preloadedStoryQueue.findIndex(
+        (item) => item.id === storyId,
+      );
+      const active = byIdIndex >= 0 ? byIdIndex : normalizedInitialIndex;
+      setStoryQueue(preloadedStoryQueue);
+      setActiveIndex(
+        Math.max(0, Math.min(preloadedStoryQueue.length - 1, active)),
+      );
+      setIsLoading(false);
+    }
+
     void (async () => {
       try {
-        setIsLoading(true);
-        const storyResponse = await client.graphql({
-          query: getStoryQuery,
-          variables: { id: storyId },
-        });
-        const loadedStory = (
-          storyResponse as { data?: { getStory?: CloudStory | null } }
-        ).data?.getStory;
-
-        if (!loadedStory) {
-          setStoryQueue([]);
-          return;
-        }
-        if (!isStoryActive(loadedStory)) {
-          setStoryQueue([]);
-          Alert.alert(
-            "期限切れ",
-            "このストーリーは24時間を過ぎたため閲覧できません。",
-            [{ text: "戻る", onPress: () => router.back() }],
-          );
+        if (preloadedStoryQueue.length > 0) {
           return;
         }
 
-        const storiesResponse = await client.graphql({
-          query: listStoriesQuery,
-        });
-        const stories =
-          (
-            storiesResponse as {
-              data?: { listStories?: { items?: Array<CloudStory | null> } };
-            }
-          ).data?.listStories?.items ?? [];
+        if (preloadedImageUrl) {
+          setStoryQueue([
+            {
+              id: storyId,
+              owner: "",
+              imageKey: "",
+              caption: null,
+              createdAt: null,
+              updatedAt: null,
+              imageUrl: preloadedImageUrl,
+            },
+          ]);
+          setActiveIndex(0);
+          setIsLoading(false);
+        }
 
-        const sameOwnerStories = stories
-          .filter((item): item is CloudStory =>
-            Boolean(
-              item?.id && item.imageKey && item.owner === loadedStory.owner,
-            ),
-          )
-          .filter((item) => isStoryActive(item))
-          .sort((a, b) => {
-            const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return at - bt;
+        if (!storyId) {
+          return;
+        }
+
+        {
+          const storyResponse = await client.graphql({
+            query: getStoryQuery,
+            variables: { id: storyId },
           });
+          const loadedStory = (
+            storyResponse as { data?: { getStory?: CloudStory | null } }
+          ).data?.getStory;
 
-        const queue =
-          sameOwnerStories.length > 0 ? sameOwnerStories : [loadedStory];
-        const queueWithImage = await Promise.all(
-          queue.map(async (item) => {
-            let resolvedImageUrl = STORY_PLACEHOLDER_URL;
+          if (!loadedStory || !isStoryActive(loadedStory)) {
+            setStoryQueue([]);
+            setIsLoading(false);
+            return;
+          }
+
+          // 画像URLは基本的にホームから受け取った値を使い、欠損時のみフォールバック通信
+          let resolvedImageUrl = preloadedImageUrl;
+          if (!resolvedImageUrl && loadedStory.imageKey) {
             try {
-              const resolved = await getUrl({ path: item.imageKey });
-              resolvedImageUrl = resolved.url.toString();
+              const resolved = await getUrl({ path: loadedStory.imageKey });
+              resolvedImageUrl = toCloudFrontImageUrl(
+                loadedStory.imageKey,
+                resolved.url.toString(),
+              );
             } catch {
-              resolvedImageUrl = STORY_PLACEHOLDER_URL;
+              resolvedImageUrl = "";
             }
+          }
 
-            return {
-              ...item,
+          if (!resolvedImageUrl) {
+            setStoryQueue([]);
+            setIsLoading(false);
+            return;
+          }
+
+          const resolvedQueue = [
+            {
+              ...loadedStory,
               imageUrl: resolvedImageUrl,
-            } satisfies StoryQueueItem;
-          }),
-        );
+            },
+          ];
+          setStoryQueue(resolvedQueue);
+          setActiveIndex(0);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("[StoryView] failed to load story metadata:", error);
+        setIsLoading(false);
+      }
+    })();
+  }, [
+    client,
+    initialIndex,
+    preloadedImageUrl,
+    preloadedStoryQueue,
+    storyId,
+  ]);
 
-        setStoryQueue(queueWithImage);
-        const ownerKey = loadedStory.owner ?? "";
-        const queueIdSet = new Set(queueWithImage.map((item) => item.id));
+  React.useEffect(() => {
+    if (storyQueue.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const ownerKey = storyQueue[0]?.owner ?? "";
+        const queueIdSet = new Set(storyQueue.map((item) => item.id));
         const viewedState = await readViewedStoryState();
         const normalizedOwnerViewed = (viewedState[ownerKey] ?? []).filter(
           (id) => queueIdSet.has(id),
@@ -422,22 +543,22 @@ export default function StoryViewScreen() {
           ...viewedState,
           [ownerKey]: normalizedOwnerViewed,
         };
-        setViewedStoryIdsByOwner(normalizedViewedState);
+
+        if (!cancelled) {
+          setViewedStoryIdsByOwner(normalizedViewedState);
+        }
         void writeViewedStoryState(normalizedViewedState);
 
-        const viewedSet = new Set(normalizedOwnerViewed);
-        const firstUnreadIndex = queueWithImage.findIndex(
-          (item) => !viewedSet.has(item.id),
-        );
-        const firstIndex = firstUnreadIndex >= 0 ? firstUnreadIndex : 0;
-        setActiveIndex(firstIndex);
-
         const currentUser = await getCurrentUser();
-        setCurrentUserId(currentUser.userId);
         const username = currentUser.username ?? "";
-        setCurrentUsername(username);
+        if (!cancelled) {
+          setCurrentUserId(currentUser.userId);
+          setCurrentUsername(username);
+        }
 
-        await loadProfileByOwner(loadedStory.owner ?? "");
+        if (ownerKey) {
+          await loadProfileByOwner(ownerKey);
+        }
 
         const reactionsResponse = await client.graphql({
           query: listStoryReactionsQuery,
@@ -464,18 +585,19 @@ export default function StoryViewScreen() {
             nextReactionMap[item.storyId][item.reactionType ?? ""] = item.id;
           });
 
-        setReactionRecordIdByStory(nextReactionMap);
-        setReactionRecordIdByType(
-          nextReactionMap[queueWithImage[firstIndex]?.id ?? ""] ?? {},
-        );
-        setProgress(0);
+        if (!cancelled) {
+          setReactionRecordIdByStory(nextReactionMap);
+          progressAnimValue.setValue(0);
+        }
       } catch (error) {
-        console.error("[StoryView] failed to load story:", error);
-      } finally {
-        setIsLoading(false);
+        console.error("[StoryView] failed to load async metadata:", error);
       }
     })();
-  }, [client, loadProfileByOwner, router, storyId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, loadProfileByOwner, storyQueue]);
 
   React.useEffect(() => {
     if (!story?.id) {
@@ -499,30 +621,58 @@ export default function StoryViewScreen() {
   }, [story?.id, story?.owner]);
 
   React.useEffect(() => {
+    if (!profileAvatarUrl) {
+      return;
+    }
+
+    void Image.prefetch(profileAvatarUrl).catch(() => {
+      // Ignore avatar prefetch failures.
+    });
+  }, [profileAvatarUrl]);
+
+  React.useEffect(() => {
+    if (storyQueue.length === 0) {
+      return;
+    }
+
+    const nextIndices = [activeIndex + 1, activeIndex + 2].filter(
+      (index) => index >= 0 && index < storyQueue.length,
+    );
+
+    if (nextIndices.length === 0) {
+      return;
+    }
+
+    const urlsToPrefetch = nextIndices
+      .map((index) => storyQueue[index]?.imageUrl)
+      .filter((url): url is string => Boolean(url))
+      .filter((url) => !prefetchedStoryImageUrlsRef.current.has(url));
+
+    if (urlsToPrefetch.length === 0) {
+      return;
+    }
+
+    urlsToPrefetch.forEach((url) => {
+      prefetchedStoryImageUrlsRef.current.add(url);
+      void Image.prefetch(url).catch(() => {
+        // Keep the URL marked to avoid repetitive retries during the same session.
+      });
+    });
+  }, [activeIndex, storyQueue]);
+
+  React.useEffect(() => {
     if (!story) {
       setReactionRecordIdByType({});
       return;
     }
     setReactionRecordIdByType(reactionRecordIdByStory[story.id] ?? {});
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
   }, [activeIndex, reactionRecordIdByStory, story]);
 
   React.useEffect(() => {
-    if (!story || isPlaybackPaused) {
-      return;
-    }
-
-    const tickMs = 50;
-    const step = tickMs / STORY_DURATION_MS;
-    const timer = setInterval(() => {
-      setProgress((prev) => {
-        const next = prev + step;
-        return next >= 1 ? 1 : next;
-      });
-    }, tickMs);
-
-    return () => clearInterval(timer);
-  }, [isPlaybackPaused, story]);
+    setIsImageLoaded(false);
+  }, [activeIndex]);
 
   const goNextStory = React.useCallback(() => {
     if (activeIndex >= storyQueue.length - 1) {
@@ -530,39 +680,95 @@ export default function StoryViewScreen() {
       return;
     }
 
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
     setActiveIndex((prev) => prev + 1);
-  }, [activeIndex, router, storyQueue.length]);
+  }, [activeIndex, progressAnimValue, router, storyQueue.length]);
 
   const goPreviousStory = React.useCallback(() => {
     if (activeIndex <= 0) {
       return;
     }
 
-    setProgress(0);
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
     setActiveIndex((prev) => prev - 1);
-  }, [activeIndex]);
+  }, [activeIndex, progressAnimValue]);
 
   React.useEffect(() => {
-    if (!story || isPlaybackPaused) {
+    if (isPlaybackPaused || storyQueue.length === 0 || !isImageLoaded) {
       return;
     }
-    if (progress >= 1) {
-      goNextStory();
-    }
-  }, [goNextStory, isPlaybackPaused, progress, story]);
 
+    const activeStory = storyQueue[activeIndex];
+    if (!activeStory) {
+      return;
+    }
+
+    // 残っているアニメーションを確実に破棄してから開始
+    progressAnimationRef.current?.stop();
+    progressAnimValue.stopAnimation();
+    progressAnimValue.setValue(0);
+
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      const animation = Animated.timing(progressAnimValue, {
+        toValue: 1,
+        duration: STORY_DURATION_MS,
+        useNativeDriver: true,
+      });
+      progressAnimationRef.current = animation;
+      animation.start(({ finished }) => {
+        if (finished) {
+          goNextStory();
+        }
+      });
+    });
+
+    return () => {
+      interactionTask.cancel();
+      progressAnimationRef.current?.stop();
+      progressAnimationRef.current = null;
+      progressAnimValue.stopAnimation();
+    };
+  }, [
+    activeIndex,
+    goNextStory,
+    isImageLoaded,
+    isPlaybackPaused,
+    progressAnimValue,
+    storyQueue,
+  ]);
+
+
+  // 受け取った初期データを最優先で使い、開いた瞬間に表示する
+  const activeStoryFallback =
+    story || preloadedStoryQueue[activeIndex] || preloadedStoryQueue[0];
+  const displayImageUrl = activeStoryFallback?.imageUrl || preloadedImageUrl || "";
+  
+  // CognitoのUUID（C7142A48...など）がそのまま表示されるのを防ぐ
+  const rawOwner = activeStoryFallback?.owner || "USER";
+  const isUUID = rawOwner.includes("-") && rawOwner.length > 20;
   const displayName =
+    activeStoryFallback?.userName ||
     profile?.displayName ||
     profile?.username ||
-    (story?.owner ?? "USER").split("@")[0].toUpperCase();
-  const created = story?.createdAt ? new Date(story.createdAt) : null;
+    (isUUID ? "" : rawOwner.split("@")[0].toUpperCase());
+  const displayAvatarUrl =
+    activeStoryFallback?.userAvatar ||
+    profileAvatarUrl ||
+    AVATAR_PLACEHOLDER_URL;
+
+  const hasInitialRouteData = Boolean(story) || Boolean(displayImageUrl);
+
+  const created = activeStoryFallback?.createdAt ? new Date(activeStoryFallback.createdAt) : null;
   const timeLabel = created
     ? `${created.getMonth() + 1}/${created.getDate()} ${created.getHours()}:${`${created.getMinutes()}`.padStart(2, "0")}`
-    : "たった今";
+    : "";
+
   const isOwnStory = Boolean(
-    story?.owner && currentUsername && story.owner === currentUsername,
+    activeStoryFallback?.owner && currentUsername && activeStoryFallback.owner === currentUsername,
   );
+
 
   const toggleStoryReaction = React.useCallback(
     async (reactionType: ReactionType) => {
@@ -817,18 +1023,17 @@ export default function StoryViewScreen() {
     };
   }, [insets.bottom, keyboardOffset]);
 
-  if (isLoading) {
+
+  // 📍 Hooks の後ろに移動済み！
+  if (isLoading && !hasInitialRouteData) {
     return (
-      <ScreenContainer>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={theme.colors.primary} />
-          <Text style={styles.loadingText}>ストーリーを読み込み中...</Text>
-        </View>
-      </ScreenContainer>
+      <View style={styles.loadingOverlayWrap}>
+        <ActivityIndicator size="large" color="#FFFFFF" />
+      </View>
     );
   }
 
-  if (!story) {
+  if (!story && !isLoading && !hasInitialRouteData) {
     return (
       <ScreenContainer>
         <View style={styles.loadingWrap}>
@@ -858,12 +1063,19 @@ export default function StoryViewScreen() {
           },
         ]}
       >
-        <ImageBackground
-          source={{ uri: story.imageUrl ?? STORY_PLACEHOLDER_URL }}
-          style={styles.hero}
-          imageStyle={styles.heroImage}
-          resizeMode="contain"
-        >
+        <View style={styles.hero}>
+          <View style={styles.heroImageAnimLayer}>
+            {/* 🔥 修正：displayImageUrl を使ってロード前でも画像を表示させる！ */}
+            <Image
+              source={{ uri: displayImageUrl }}
+              style={styles.heroImageLayer}
+              contentFit="contain"
+              transition={0}
+              cachePolicy="memory-disk"
+              priority="high"
+              onLoad={() => setIsImageLoaded(true)}
+            />
+          </View>
           <Pressable
             style={styles.heroOverlay}
             onPress={onHeroTap}
@@ -886,15 +1098,53 @@ export default function StoryViewScreen() {
               {storyQueue.map((item, index) => {
                 const isDone = index < activeIndex;
                 const isCurrent = index === activeIndex;
-                const fill = isDone ? 1 : isCurrent ? progress : 0;
                 return (
-                  <View key={item.id} style={styles.bar}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        { width: `${Math.max(0, Math.min(1, fill)) * 100}%` },
-                      ]}
-                    />
+                  <View
+                    key={item.id}
+                    style={styles.bar}
+                    onLayout={
+                      index === 0
+                        ? (event) => {
+                            const measuredWidth = event.nativeEvent.layout.width;
+                            if (
+                              measuredWidth > 0 &&
+                              measuredWidth !== progressBarWidth
+                            ) {
+                              setProgressBarWidth(measuredWidth);
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    {isCurrent ? (
+                      <Animated.View
+                        style={[
+                          styles.barFill,
+                          {
+                            transform: [
+                              { translateX: currentProgressTranslateX },
+                              { scaleX: currentProgressScaleX },
+                            ],
+                          },
+                        ]}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.barFill,
+                          {
+                            transform: [
+                              {
+                                translateX: isDone
+                                  ? 0
+                                  : -(progressBarWidth / 2),
+                              },
+                              { scaleX: isDone ? 1 : 0 },
+                            ],
+                          },
+                        ]}
+                      />
+                    )}
                   </View>
                 );
               })}
@@ -903,8 +1153,12 @@ export default function StoryViewScreen() {
             <View style={styles.topRow}>
               <View style={styles.profileHeader}>
                 <Image
-                  source={{ uri: profileAvatarUrl ?? AVATAR_PLACEHOLDER_URL }}
+                  source={{ uri: displayAvatarUrl }}
                   style={styles.profileAvatar}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  transition={0}
                 />
                 <View>
                   <Text style={styles.name}>{displayName}</Text>
@@ -948,7 +1202,7 @@ export default function StoryViewScreen() {
               </View>
             ) : null}
           </Pressable>
-        </ImageBackground>
+        </View>
 
         <Animated.View
           style={[
@@ -961,10 +1215,10 @@ export default function StoryViewScreen() {
             },
           ]}
         >
-          {story.caption ? (
-            <Text style={styles.caption}>{story.caption}</Text>
+          {activeStoryFallback?.caption ? (
+            <Text style={styles.caption}>{activeStoryFallback.caption}</Text>
           ) : null}
-          {isOwnStory ? null : (
+          {!story || isOwnStory ? null : (
             <View style={styles.inputRow}>
               <TextInput
                 value={message}
@@ -1056,28 +1310,33 @@ export default function StoryViewScreen() {
   );
 }
 
+
+
 const createStyles = () =>
   StyleSheet.create({
     modalRoot: {
       flex: 1,
-      backgroundColor: "#000000",
+      backgroundColor: "transparent",
     },
     backdrop: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "#000000",
+      backgroundColor: "rgba(0,0,0,0.9)",
     },
     container: {
       flex: 1,
-      backgroundColor: theme.colors.surface,
+      backgroundColor: "transparent",
     },
     hero: {
       width: "100%",
       flex: 1,
       justifyContent: "space-between",
-      backgroundColor: "#111111",
+      backgroundColor: "#000000",
     },
-    heroImage: {
-      resizeMode: "contain",
+    heroImageLayer: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    heroImageAnimLayer: {
+      ...StyleSheet.absoluteFillObject,
     },
     heroOverlay: {
       flex: 1,
@@ -1106,6 +1365,12 @@ const createStyles = () =>
       justifyContent: "center",
       alignItems: "center",
       gap: theme.spacing.sm,
+    },
+    loadingOverlayWrap: {
+      flex: 1,
+      backgroundColor: "#000000",
+      justifyContent: "center",
+      alignItems: "center",
     },
     loadingText: {
       color: theme.colors.text,
@@ -1136,6 +1401,7 @@ const createStyles = () =>
       overflow: "hidden",
     },
     barFill: {
+      width: "100%",
       height: "100%",
       borderRadius: 2,
       backgroundColor: theme.colors.white,

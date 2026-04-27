@@ -14,6 +14,7 @@ import { getUrl } from "aws-amplify/storage";
 import { BackButton } from "../src/components/common/BackButton";
 import { ScreenContainer } from "../src/components/common";
 import { Text } from "../src/components/common/Typography";
+import { toCloudFrontImageUrl } from "../src/services/aws/cdn";
 import { theme } from "../src/theme";
 
 type InitialTab = "following" | "followers";
@@ -165,7 +166,10 @@ export default function FollowListScreen() {
               if (profile?.iconImageKey) {
                 try {
                   const resolved = await getUrl({ path: profile.iconImageKey });
-                  avatarUrl = resolved.url.toString();
+                  avatarUrl = toCloudFrontImageUrl(
+                    profile.iconImageKey,
+                    resolved.url.toString(),
+                  );
                 } catch {
                   avatarUrl = null;
                 }

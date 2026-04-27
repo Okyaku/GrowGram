@@ -8,6 +8,7 @@ export const env = {
   s3: {
     bucket: process.env.EXPO_PUBLIC_S3_BUCKET ?? '',
     region: process.env.EXPO_PUBLIC_S3_REGION ?? 'ap-northeast-1',
+    cloudFrontDomain: process.env.EXPO_PUBLIC_CLOUDFRONT_DOMAIN ?? '',
   },
 };
 
