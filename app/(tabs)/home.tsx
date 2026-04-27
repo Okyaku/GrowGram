@@ -763,7 +763,8 @@ export default function HomeScreen() {
               profile?.displayName ||
               profile?.username ||
               userOwner.split("@")[0].toUpperCase(),
-            image: "",
+            // Story ring should always represent the user avatar, never story content.
+            image: profile?.avatarUrl ?? "",
             active: true,
             allStories,
           };
@@ -771,14 +772,33 @@ export default function HomeScreen() {
       );
 
       const myProfile = profileByOwner.get(owner) as any;
-      const myStoryItem = immediateStoryList.find((s) => s.owner === owner) || {
-        id: "my-create",
-        owner,
-        userName: myProfile?.displayName || "MY GROW",
-        image: "",
-        active: true,
-        allStories: [] as any[],
-      };
+      let myResolvedAvatar = "";
+      if (myProfile?.iconImageKey) {
+        try {
+          const avatarResult = await getUrl({ path: myProfile.iconImageKey });
+          myResolvedAvatar = toCloudFrontImageUrl(
+            myProfile.iconImageKey,
+            avatarResult.url.toString(),
+          );
+        } catch {
+          myResolvedAvatar = "";
+        }
+      }
+
+      const existingMyStory = immediateStoryList.find((s) => s.owner === owner);
+      const myStoryItem = existingMyStory
+        ? {
+            ...existingMyStory,
+            image: myResolvedAvatar || existingMyStory.image,
+          }
+        : {
+            id: "my-create",
+            owner,
+            userName: myProfile?.displayName || "MY GROW",
+            image: myResolvedAvatar,
+            active: true,
+            allStories: [] as any[],
+          };
       const otherStories = immediateStoryList.filter((s) => s.owner !== owner);
 
       if (normalizedPosts.length > 0) {
@@ -2011,7 +2031,13 @@ export default function HomeScreen() {
                         transition={0}
                       />
                     ) : (
-                      <View style={styles.storyAvatarPlaceholder} />
+                      <View style={styles.storyAvatarPlaceholder}>
+                        <Ionicons
+                          name="person"
+                          size={18}
+                          color={theme.colors.textSub}
+                        />
+                      </View>
                     )}
                   </View>
                   {story.owner === currentOwner && currentOwner.length > 0 ? (
@@ -2613,7 +2639,7 @@ const createStyles = () =>
       borderColor: theme.colors.border,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.colors.white,
+      backgroundColor: theme.colors.surface,
     },
     storyRingActive: {
       borderColor: theme.colors.primary,
@@ -2628,7 +2654,9 @@ const createStyles = () =>
       width: 54,
       height: 54,
       borderRadius: 10,
-      backgroundColor: theme.colors.surface,
+      backgroundColor: theme.colors.border,
+      alignItems: "center",
+      justifyContent: "center",
     },
     storyAddButton: {
       position: "absolute",
