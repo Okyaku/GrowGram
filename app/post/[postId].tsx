@@ -173,6 +173,15 @@ const createPostCommentMutation = /* GraphQL */ `
   }
 `;
 
+const deletePostCommentMutation = /* GraphQL */ `
+  mutation DeletePostComment($input: DeletePostCommentInput!) {
+    deletePostComment(input: $input) {
+      id
+      postId
+    }
+  }
+`;
+
 type SelectedPostPayload = {
   id: string;
   owner?: string;
@@ -194,6 +203,7 @@ type PostCommentItem = {
   owner: string;
   content: string;
   createdAt: string;
+  isMine: boolean;
 };
 
 export default function PostDetailScreen() {
@@ -270,6 +280,9 @@ export default function PostDetailScreen() {
   const [commentInput, setCommentInput] = React.useState("");
   const [isSubmittingComment, setIsSubmittingComment] = React.useState(false);
   const [postComments, setPostComments] = React.useState<PostCommentItem[]>([]);
+  const [deletingCommentIds, setDeletingCommentIds] = React.useState<
+    Record<string, boolean>
+  >({});
 
   const reactionPalette = React.useMemo(
     () => ({
@@ -466,6 +479,7 @@ export default function PostDetailScreen() {
               owner: item.owner ?? "USER",
               content: item.content ?? "",
               createdAt: item.createdAt ?? "1970-01-01T00:00:00.000Z",
+              isMine: isOwnedByViewer(item.owner),
             }))
             .sort(
               (a, b) =>
@@ -794,6 +808,46 @@ export default function PostDetailScreen() {
     }
   }, [client, commentInput, targetPostId]);
 
+  const onDeleteComment = React.useCallback(
+    (comment: PostCommentItem) => {
+      if (!comment.isMine || deletingCommentIds[comment.id]) {
+        return;
+      }
+
+      Alert.alert("コメント削除", "このコメントを削除しますか？", [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setDeletingCommentIds((prev) => ({
+                ...prev,
+                [comment.id]: true,
+              }));
+              try {
+                await client.graphql({
+                  query: deletePostCommentMutation,
+                  variables: { input: { id: comment.id } },
+                });
+                setRefreshTick((prev) => prev + 1);
+              } catch (error) {
+                console.log("[PostDetail] failed to delete comment:", error);
+                Alert.alert("失敗", "コメント削除に失敗しました。");
+              } finally {
+                setDeletingCommentIds((prev) => ({
+                  ...prev,
+                  [comment.id]: false,
+                }));
+              }
+            })();
+          },
+        },
+      ]);
+    },
+    [client, deletingCommentIds],
+  );
+
   return (
     <ScreenContainer backgroundColor={theme.colors.white}>
       <View style={styles.headerRow}>
@@ -1062,9 +1116,24 @@ export default function PostDetailScreen() {
               {postComments.length > 0 ? (
                 postComments.map((comment) => (
                   <View key={comment.id} style={styles.commentItem}>
-                    <Text style={styles.commentOwner} numberOfLines={1}>
-                      {comment.owner}
-                    </Text>
+                    <View style={styles.commentHeaderRow}>
+                      <Text style={styles.commentOwner} numberOfLines={1}>
+                        {comment.owner}
+                      </Text>
+                      {comment.isMine ? (
+                        <Pressable
+                          style={styles.commentDeleteButton}
+                          disabled={Boolean(deletingCommentIds[comment.id])}
+                          onPress={() => onDeleteComment(comment)}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={14}
+                            color={theme.colors.danger}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     <Text style={styles.commentContent}>{comment.content}</Text>
                   </View>
                 ))
@@ -1307,11 +1376,25 @@ const createStyles = (isDarkMode: boolean) =>
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.surface,
     },
+    commentHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
     commentOwner: {
       color: theme.colors.textSub,
       fontSize: 11,
       fontWeight: "700",
       marginBottom: 2,
+    },
+    commentDeleteButton: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      opacity: 0.92,
     },
     commentContent: {
       color: theme.colors.text,

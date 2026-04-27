@@ -109,6 +109,7 @@ type CloudReadReceipt = {
 type FeedComment = {
   id: string;
   postId: string;
+  owner: string;
   ownerId: string;
   ownerName: string;
   ownerAvatar?: string;
@@ -348,6 +349,15 @@ const createPostCommentMutation = /* GraphQL */ `
   }
 `;
 
+const deletePostCommentMutation = /* GraphQL */ `
+  mutation DeletePostComment($input: DeletePostCommentInput!) {
+    deletePostComment(input: $input) {
+      id
+      postId
+    }
+  }
+`;
+
 const listCommentLikesQuery = /* GraphQL */ `
   query ListCommentLikes {
     listCommentLikes(limit: 1000) {
@@ -536,6 +546,7 @@ export default function HomeScreen() {
   );
   const inFlightReactionKeysRef = React.useRef<Set<string>>(new Set());
   const inFlightCommentLikeIdsRef = React.useRef<Set<string>>(new Set());
+  const inFlightCommentDeleteIdsRef = React.useRef<Set<string>>(new Set());
   const hasLoadedInitialFeedRef = React.useRef(false);
   const isRefreshingRef = React.useRef(false);
   const refreshTriggerArmedRef = React.useRef(true);
@@ -1193,6 +1204,7 @@ export default function HomeScreen() {
           const nextComment: FeedComment = {
             id: item.id,
             postId: item.postId,
+            owner: commentOwner,
             ownerId: profile?.id ?? commentOwner,
             ownerName:
               profile?.displayName ||
@@ -1791,6 +1803,63 @@ export default function HomeScreen() {
     ],
   );
 
+  const isOwnedByMeForComment = React.useCallback(
+    (commentOwner?: string | null) => {
+      if (!commentOwner) {
+        return false;
+      }
+      if (currentOwner && commentOwner === currentOwner) {
+        return true;
+      }
+      if (currentUserId && commentOwner === currentUserId) {
+        return true;
+      }
+      if (currentOwner && commentOwner.endsWith(`::${currentOwner}`)) {
+        return true;
+      }
+      return false;
+    },
+    [currentOwner, currentUserId],
+  );
+
+  const onDeleteComment = React.useCallback(
+    (comment: FeedComment) => {
+      if (!isOwnedByMeForComment(comment.owner)) {
+        return;
+      }
+
+      if (inFlightCommentDeleteIdsRef.current.has(comment.id)) {
+        return;
+      }
+
+      Alert.alert("コメント削除", "このコメントを削除しますか？", [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "削除",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              inFlightCommentDeleteIdsRef.current.add(comment.id);
+              try {
+                await client.graphql({
+                  query: deletePostCommentMutation,
+                  variables: { input: { id: comment.id } },
+                });
+                await loadFeed();
+              } catch (error) {
+                console.error("[Home] failed to delete comment:", error);
+                Alert.alert("失敗", "コメント削除に失敗しました。");
+              } finally {
+                inFlightCommentDeleteIdsRef.current.delete(comment.id);
+              }
+            })();
+          },
+        },
+      ]);
+    },
+    [client, isOwnedByMeForComment, loadFeed],
+  );
+
   const renderCommentContent = React.useCallback(
     (content: string) => {
       const segments = content.split(/(@[a-zA-Z0-9_.]+)/g);
@@ -2073,6 +2142,7 @@ export default function HomeScreen() {
                 : [];
           const isOwner =
             currentOwner.length > 0 && post.userId === currentOwner;
+          const commentCount = (commentsByPost[post.id] ?? []).length;
           return (
             <View key={post.id} style={styles.card}>
               <View style={styles.postTopSection}>
@@ -2334,6 +2404,15 @@ export default function HomeScreen() {
                           : theme.colors.textSub
                       }
                     />
+                    <Text
+                      style={[
+                        styles.postActionText,
+                        commentPanelOpenByPost[post.id] &&
+                          styles.postActionTextActive,
+                      ]}
+                    >
+                      {commentCount}
+                    </Text>
                   </Pressable>
                   {isOwner ? (
                     <Pressable
@@ -2410,30 +2489,45 @@ export default function HomeScreen() {
                             </Text>
                           </Pressable>
 
-                          <Pressable
-                            style={[
-                              styles.commentLikeButton,
-                              !isIdentityReady &&
-                              styles.commentLikeButtonDisabled,
-                            ]}
-                            disabled={!isIdentityReady}
-                            onPress={() => void onToggleCommentLike(comment)}
-                          >
-                            <Ionicons
-                              name={
-                                comment.likedByMe ? "heart" : "heart-outline"
-                              }
-                              size={14}
-                              color={
-                                comment.likedByMe
-                                  ? theme.colors.danger
-                                  : theme.colors.textSub
-                              }
-                            />
-                            <Text style={styles.commentLikeText}>
-                              {comment.likeCount}
-                            </Text>
-                          </Pressable>
+                          <View style={styles.commentActionsRow}>
+                            {isOwnedByMeForComment(comment.owner) ? (
+                              <Pressable
+                                style={styles.commentDeleteButton}
+                                onPress={() => onDeleteComment(comment)}
+                              >
+                                <Ionicons
+                                  name="trash-outline"
+                                  size={14}
+                                  color={theme.colors.danger}
+                                />
+                              </Pressable>
+                            ) : null}
+
+                            <Pressable
+                              style={[
+                                styles.commentLikeButton,
+                                !isIdentityReady &&
+                                  styles.commentLikeButtonDisabled,
+                              ]}
+                              disabled={!isIdentityReady}
+                              onPress={() => void onToggleCommentLike(comment)}
+                            >
+                              <Ionicons
+                                name={
+                                  comment.likedByMe ? "heart" : "heart-outline"
+                                }
+                                size={14}
+                                color={
+                                  comment.likedByMe
+                                    ? theme.colors.danger
+                                    : theme.colors.textSub
+                                }
+                              />
+                              <Text style={styles.commentLikeText}>
+                                {comment.likeCount}
+                              </Text>
+                            </Pressable>
+                          </View>
                         </View>
                         <Text style={styles.commentText}>
                           {renderCommentContent(comment.content)}
@@ -2963,6 +3057,18 @@ const createStyles = () =>
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
+    },
+    commentActionsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    commentDeleteButton: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
     },
     commentLikeButtonDisabled: {
       opacity: 0.45,
