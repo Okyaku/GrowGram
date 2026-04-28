@@ -1,7 +1,8 @@
 import React from "react";
 import {
+  ActivityIndicator,
   Alert,
-  Image,
+  Image as NativeImage,
   Linking,
   Pressable,
   StyleSheet,
@@ -9,9 +10,11 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { usePreventRemove } from "@react-navigation/native";
 import { generateClient } from "aws-amplify/api";
-import { uploadData } from "aws-amplify/storage";
+import { getUrl, uploadData } from "aws-amplify/storage";
 import {
   CustomButton,
   InputField,
@@ -41,7 +44,11 @@ export default function StoryCreateScreen() {
   const { recordDailyActivity } = useRoadmap();
   const [imageUri, setImageUri] = React.useState<string | null>(null);
   const [caption, setCaption] = React.useState("");
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isUploading, setIsUploading] = React.useState(false);
+
+  usePreventRemove(isUploading, () => {
+    // Block leaving the screen while a story is being uploaded and finalized.
+  });
 
   const onPickImage = async () => {
     const current = await ImagePicker.getMediaLibraryPermissionsAsync();
@@ -106,6 +113,10 @@ export default function StoryCreateScreen() {
   }, []);
 
   const onSubmit = async () => {
+    if (isUploading) {
+      return;
+    }
+
     if (!imageUri) {
       Alert.alert(
         "画像を選択してください",
@@ -115,10 +126,13 @@ export default function StoryCreateScreen() {
     }
 
     try {
-      setIsSubmitting(true);
+      setIsUploading(true);
+
+      // 1) Upload image to S3 and wait for completion.
       const imageKey = await uploadStoryImage(imageUri);
 
-      const response = await client.graphql({
+      // 2) Persist story record in GraphQL and wait for completion.
+      const storyResponse = await client.graphql({
         query: createStoryMutation,
         variables: {
           input: {
@@ -128,40 +142,49 @@ export default function StoryCreateScreen() {
         },
       });
 
-      const storyId = (response as { data?: { createStory?: { id?: string } } })
-        .data?.createStory?.id;
+      // 3) Resolve final public URL for the just-uploaded image.
+      const resolved = await getUrl({ path: imageKey });
+      const finalUrl = resolved.url.toString();
+
+      // 4) Prefetch image so it is ready when user returns to home/story view.
+      await Image.prefetch(finalUrl);
+
       recordDailyActivity("story");
 
-      if (storyId) {
-        router.replace(`/story/${storyId}`);
-        return;
-      }
-
+      (globalThis as any).storyUploadIndicatorUntil = Date.now() + 2200;
+      setIsUploading(false);
       router.back();
     } catch (error) {
       console.error("[StoryCreate] failed to create story:", error);
+      setIsUploading(false);
       Alert.alert(
         "投稿失敗",
         "ストーリーの投稿に失敗しました。時間をおいて再試行してください。",
       );
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
   return (
     <ScreenContainer>
       <View style={styles.headerRow}>
-        <Pressable style={styles.iconButton} onPress={() => router.back()}>
+        <Pressable
+          style={styles.iconButton}
+          onPress={() => {
+            if (!isUploading) {
+              router.back();
+            }
+          }}
+          disabled={isUploading}
+        >
           <Ionicons name="arrow-back" size={20} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.title}>ストーリー投稿</Text>
         <View style={styles.iconDummy} />
       </View>
 
-      <Pressable style={styles.upload} onPress={onPickImage}>
+      <Pressable style={styles.upload} onPress={onPickImage} disabled={isUploading}>
         {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.uploaded} />
+          <NativeImage source={{ uri: imageUri }} style={styles.uploaded} />
         ) : (
           <Text style={styles.uploadText}>写真を選択</Text>
         )}
@@ -178,8 +201,16 @@ export default function StoryCreateScreen() {
       <CustomButton
         label="ストーリーを投稿"
         onPress={() => void onSubmit()}
-        loading={isSubmitting}
+        loading={isUploading}
+        disabled={isUploading}
       />
+
+      {isUploading ? (
+        <View style={styles.uploadOverlay}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.uploadOverlayText}>投稿を処理中です...</Text>
+        </View>
+      ) : null}
     </ScreenContainer>
   );
 }
@@ -229,6 +260,19 @@ const createStyles = () =>
     uploaded: {
       width: "100%",
       height: "100%",
+    },
+    uploadOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 10,
+      backgroundColor: "rgba(0, 0, 0, 0.35)",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.spacing.sm,
+    },
+    uploadOverlayText: {
+      color: theme.colors.white,
+      fontWeight: "800",
+      fontSize: 14,
     },
     multiline: {
       minHeight: 120,

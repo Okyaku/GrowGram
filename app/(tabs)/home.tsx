@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   Modal,
   Pressable,
   RefreshControl,
@@ -551,7 +552,62 @@ export default function HomeScreen() {
   const isRefreshingRef = React.useRef(false);
   const refreshTriggerArmedRef = React.useRef(true);
   const [isInitialFeedLoading, setIsInitialFeedLoading] = React.useState(true);
+  const [isUploadingMyStory, setIsUploadingMyStory] = React.useState(false);
+  const spinValue = React.useRef(new Animated.Value(0)).current;
   const isIdentityReady = Boolean(currentOwner && currentUserId);
+
+  React.useEffect(() => {
+    if (!isUploadingMyStory) {
+      spinValue.stopAnimation();
+      spinValue.setValue(0);
+      return;
+    }
+
+    const spinLoop = Animated.loop(
+      Animated.timing(spinValue, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    spinLoop.start();
+
+    return () => {
+      spinLoop.stop();
+    };
+  }, [isUploadingMyStory, spinValue]);
+
+  const uploadingRingSpinStyle = React.useMemo(
+    () => ({
+      transform: [
+        {
+          rotate: spinValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: ["0deg", "360deg"],
+          }),
+        },
+      ],
+    }),
+    [spinValue],
+  );
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      const until = (globalThis as any).storyUploadIndicatorUntil;
+      const shouldShow =
+        typeof until === "number" && Number.isFinite(until) && until > Date.now();
+      setIsUploadingMyStory((prev) => (prev === shouldShow ? prev : shouldShow));
+
+      if (!shouldShow && typeof until === "number") {
+        (globalThis as any).storyUploadIndicatorUntil = 0;
+      }
+    }, 180);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
 
   const deleteRecordsInBatches = React.useCallback(
     async (ids: string[], query: string, kind: string) => {
@@ -1270,8 +1326,6 @@ export default function HomeScreen() {
 
   React.useEffect(() => {
     void loadFeed();
-    // 初回マウント時のみロードし、フォーカス復帰では再取得しない。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onRefresh = React.useCallback(async () => {
@@ -1920,33 +1974,19 @@ export default function HomeScreen() {
     const matchedGroup = stories.find(
       (s: any) =>
         s.id === targetId ||
-        (s.allStories && s.allStories.some((as: any) => as.id === targetId))
+        (s.allStories && s.allStories.some((as: any) => as.id === targetId)),
     );
 
-    if (!matchedGroup || !matchedGroup.allStories || matchedGroup.allStories.length === 0) return;
-
-    // 5️⃣ globalThis に全ストーリーデータをセット（URL長制限回避）
+    if (
+      !matchedGroup ||
+      !matchedGroup.allStories ||
+      matchedGroup.allStories.length === 0
+    ) {
+      return;
+    }
     (globalThis as any).sharedStoryQueue = matchedGroup.allStories;
 
-    const idx = matchedGroup.allStories.findIndex((as: any) => as.id === targetId);
-
-    // 6️⃣ globalThis 設定と同時に段階先読み prefetch（スワイプ対応）
-    const activeAndNext = matchedGroup.allStories.slice(
-      idx,
-      Math.min(idx + 2, matchedGroup.allStories.length)
-    );
-    Promise.all(
-      activeAndNext.map((story) => {
-        try {
-          return Image.prefetch(story.imageUrl || "");
-        } catch {
-          return Promise.resolve();
-        }
-      })
-    ).catch(() => {
-      // 非同期 prefetch 失敗は無視
-    });
-
+    const idx = matchedGroup.allStories.findIndex((story: any) => story.id === targetId);
     router.push({
       pathname: "/story/[storyId]",
       params: {
@@ -2070,66 +2110,98 @@ export default function HomeScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.storyList}
           >
-            {stories.map((story) => (
-              <Pressable
-                key={story.id}
-                style={styles.storyItem}
-                onPress={() => {
-                  if (story.id === "my-create") {
-                    router.push("/story-create");
-                    return;
-                  }
+            {stories.map((story) => {
+              const isMyStoryItem =
+                story.owner === currentOwner && currentOwner.length > 0;
+              const isMyStoryUploading = isMyStoryItem && isUploadingMyStory;
 
-                  openStoryWithInitialData(story.id);
-                }}
-              >
-                <View style={styles.storyRingWrapper}>
-                  <View
-                    style={[
-                      styles.storyRing,
-                      story.active && styles.storyRingActive,
-                    ]}
-                  >
-                    {story.image ? (
-                      <Image
-                        source={{ uri: story.image }}
-                        style={styles.storyAvatar}
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        priority="high"
-                        transition={0}
+              return (
+                <Pressable
+                  key={story.id}
+                  style={styles.storyItem}
+                  onPress={() => {
+                    if (isMyStoryUploading) {
+                      return;
+                    }
+
+                    if (story.id === "my-create") {
+                      router.push("/story-create");
+                      return;
+                    }
+
+                    openStoryWithInitialData(story.id);
+                  }}
+                >
+                  <View style={styles.storyRingWrapper}>
+                    {isMyStoryUploading ? (
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[styles.storyRingSpinner, uploadingRingSpinStyle]}
                       />
-                    ) : (
-                      <View style={styles.storyAvatarPlaceholder}>
-                        <Ionicons
-                          name="person"
-                          size={18}
-                          color={theme.colors.textSub}
-                        />
-                      </View>
-                    )}
-                  </View>
-                  {story.owner === currentOwner && currentOwner.length > 0 ? (
-                    <Pressable
-                      style={styles.storyAddButton}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        router.push("/story-create");
-                      }}
+                    ) : null}
+                    <View
+                      style={[
+                        styles.storyRing,
+                        story.active && !isMyStoryUploading && styles.storyRingActive,
+                        isMyStoryUploading && styles.storyRingUploading,
+                      ]}
                     >
-                      <Ionicons
-                        name="add"
-                        size={12}
-                        color={theme.colors.onPrimary}
-                      />
-                    </Pressable>
-                  ) : null}
-                </View>
-                <Text style={styles.storyName} numberOfLines={1}>
-                  {story.userName}
-                </Text>
-              </Pressable>
-            ))}
+                      {story.image ? (
+                        <Image
+                          source={{ uri: story.image }}
+                          style={[
+                            styles.storyAvatar,
+                            isMyStoryUploading && styles.storyAvatarUploading,
+                          ]}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          priority="high"
+                          transition={0}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.storyAvatarPlaceholder,
+                            isMyStoryUploading && styles.storyAvatarUploading,
+                          ]}
+                        >
+                          <Ionicons
+                            name="person"
+                            size={18}
+                            color={theme.colors.textSub}
+                          />
+                        </View>
+                      )}
+                    </View>
+                    {isMyStoryItem ? (
+                      <Pressable
+                        style={[
+                          styles.storyAddButton,
+                          isMyStoryUploading && styles.storyAddButtonDisabled,
+                        ]}
+                        disabled={isMyStoryUploading}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          if (isMyStoryUploading) {
+                            return;
+                          }
+                          router.push("/story-create");
+                        }}
+                      >
+                        <Ionicons
+                          name="add"
+                          size={12}
+                          color={theme.colors.onPrimary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Text style={styles.storyName} numberOfLines={1}>
+                    {isMyStoryUploading ? "投稿中..." : story.userName}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </View>
 
@@ -2738,11 +2810,30 @@ const createStyles = () =>
     storyRingActive: {
       borderColor: theme.colors.primary,
     },
+    storyRingUploading: {
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.white,
+    },
+    storyRingSpinner: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width: 62,
+      height: 62,
+      borderRadius: 14,
+      borderWidth: 2,
+      borderColor: "#D1D5DB",
+      borderTopColor: theme.colors.primary,
+      zIndex: 2,
+    },
     storyAvatar: {
       width: 54,
       height: 54,
       borderRadius: 10,
       backgroundColor: theme.colors.surface,
+    },
+    storyAvatarUploading: {
+      opacity: 0.5,
     },
     storyAvatarPlaceholder: {
       width: 54,
@@ -2764,6 +2855,9 @@ const createStyles = () =>
       borderColor: theme.colors.white,
       alignItems: "center",
       justifyContent: "center",
+    },
+    storyAddButtonDisabled: {
+      opacity: 0.55,
     },
     storyName: {
       marginTop: 6,
